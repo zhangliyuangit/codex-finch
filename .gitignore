@@ -1,0 +1,8 @@
+.DS_Store
+build/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.jsonl
+*.zip
+Assets/AppIcon.icns

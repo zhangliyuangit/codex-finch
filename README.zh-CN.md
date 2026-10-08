@@ -1,0 +1,53 @@
+# Codex Finch · 小雀
+
+菜单栏里的 Codex 用量与会话助手。
+
+[English](README.md) · [下载](https://github.com/zhangliyuangit/codex-finch/releases) · [技术说明](docs/architecture.md)
+
+<p><img src="docs/images/dark.png" width="350" alt="深色面板，使用示例项目"> <img src="docs/images/light.png" width="350" alt="浅色面板，使用示例项目"></p>
+
+截图使用虚构项目和用量；面板为原生视图渲染，外层菜单栏是预览场景。
+
+## 能看什么
+
+- 菜单栏可设置：今日 token、剩余额度、活跃会话数、仅图标。
+- 会话按项目分组，可折叠，点击会话跳转到 Codex。
+- 从本地记录识别处理中、待确认、结束、中断和失败。
+- 可选系统通知：任务结束、需要确认、低额度；提示音单独设置，默认关闭通知。
+- 原生 AppKit + SwiftUI，支持深浅外观，不占 Dock。
+
+## 安装
+
+需要 macOS 14+，以及使用过本地会话的 Codex 桌面客户端。下载包为 Apple Silicon 构建；Intel 可尝试源码构建，但尚未验证。
+
+到 [Releases](https://github.com/zhangliyuangit/codex-finch/releases) 下载 ZIP，解压后将 **Codex Finch.app** 拖入“应用程序”。当前构建为临时签名，未公证；如被 macOS 拦截，在核对源码和校验值后，通过访达的“打开”或“隐私与安全性”中的批准入口打开。
+
+不会自动设置开机启动。开启通知时请求 macOS 授权，可以用“测试通知”检查本机投递。
+
+## 统计口径
+
+| 指标 | 含义 |
+| --- | --- |
+| 今日 token | 系统时区 0 点起，本机已记录用量；包含已归档会话和子智能体，不受列表 24 条限制。 |
+| 会话累计 | 当前会话最后一次记录的累计 token。 |
+| 剩余额度 | 账号共享额度快照，并展示记录时间和重置时间；Codex 写入新记录后才更新。 |
+| 活跃会话 | 监听的最近 24 个主会话中，有近期运行证据的会话数量。 |
+
+缓存输入已包含在输入中，推理输出已包含在输出中，不重复相加。`≥` 表示统计不完整或依赖旧格式。今日总量仅覆盖本机记录，不能当作账号云端账单；不会将订阅额度换算成虚构的单会话费用。
+
+日志和数据库是 Codex 内部实现，格式变化时可能暂不兼容。待确认只覆盖日志中明确的阻塞请求/审批记录；部分审批流程没有对应记录。运行证据超过 10 分钟会显示待更新，不自动认定任务完成。
+
+## 构建与验证
+
+安装 Xcode Command Line Tools，无第三方运行时依赖。
+
+```sh
+git clone https://github.com/zhangliyuangit/codex-finch.git
+cd codex-finch
+zsh build.sh
+zsh test.sh
+```
+
+正常运行不发网络请求、不调用模型、不定时轮询。通过文件事件触发增量读取，首次和跨日时需要流式回填当天相关日志。仅保存自己的偏好和用量索引，不修改 Codex 的数据库或日志。索引不保存原始聊天内容、命令输出或凭证；会话标题用于界面及可选通知，不向服务端上传。
+
+代码使用 [MIT](LICENSE) 许可。本项目独立开发，与 OpenAI 无关联；Codex/OpenAI 标志归各自权利人所有，代码许可不授予其标志权利。详见 [图标说明](docs/artwork.md)。
