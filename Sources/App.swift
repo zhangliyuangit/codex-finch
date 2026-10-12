@@ -26,6 +26,7 @@ final class UsageAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate
     private var activityDeadline: Date?
     private var activityWork: DispatchWorkItem?
     private var notifications: LocalNotifications?
+    private let login = LoginItemController()
     private var dayDeadline: Date?
     private var dayWork: DispatchWorkItem?
     private var dateObservers: [NSObjectProtocol] = []
@@ -43,13 +44,56 @@ final class UsageAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if let path = argument("--verify-native") {
+            let center = UNUserNotificationCenter.current()
+            var finished = false
+            func finish(_ fields: [String:Any]) {
+                guard !finished else { return };finished = true
+                if let data=try? JSONSerialization.data(withJSONObject:fields,options:.sortedKeys) {
+                    try? data.write(to:URL(fileURLWithPath:path),options:.atomic)
+                }
+                NSApp.terminate(nil)
+            }
+            notifications = LocalNotifications(store:store) { id in
+                if let id,let url=CodexLink.url(for:id) { NSWorkspace.shared.open(url) }
+            }
+            var checked = false
+            store.onUpdate = { [weak self] in
+                guard let self,!checked else { return };checked=true
+                let url = self.store.snapshot.sessions.first.flatMap { CodexLink.url(for:$0.id) }
+                let handler = url.flatMap { NSWorkspace.shared.urlForApplication(toOpen:$0) } != nil
+                self.notifications?.test { requestID in
+                    DispatchQueue.main.asyncAfter(deadline:.now()+1) {
+                        center.getDeliveredNotifications { notices in
+                            DispatchQueue.main.async {
+                                finish(["linkHandlerRegistered":handler,"notificationAccepted":requestID != nil,
+                                        "testNotificationDelivered":notices.contains { $0.request.identifier == requestID },
+                                        "visibleBannerVerified":false,"conversationClickVerified":false])
+                            }
+                        }
+                    }
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline:.now()+20) { finish(["timedOut":true]) }
+            store.start();return
+        }
+        if let path = argument("--login-status") {
+            login.refresh()
+            let object: [String:Any] = ["state":login.state.rawValue, "enabled":login.state.isEnabled, "message":login.message]
+            if let data = try? JSONSerialization.data(withJSONObject:object) { try? data.write(to:URL(fileURLWithPath:path)) }
+            NSApp.terminate(nil); return
+        }
         if let path = argument("--diagnostics") { store.diagnosticsURL = URL(fileURLWithPath: path) }
         if let metric = argument("--metric").flatMap(MenuMetric.init(rawValue:)) { store.metric = metric }
         if let path = argument("--notification-status") {
             UNUserNotificationCenter.current().getNotificationSettings { settings in
                 let object: [String: Any] = ["authorizationStatus": settings.authorizationStatus.rawValue,
                                             "alertSetting": settings.alertSetting.rawValue,
-                                            "soundSetting": settings.soundSetting.rawValue]
+                                            "soundSetting": settings.soundSetting.rawValue,
+                                            "alertStyle": settings.alertStyle.rawValue,
+                                            "notificationCenterSetting": settings.notificationCenterSetting.rawValue,
+                                            "scheduledDeliverySetting": settings.scheduledDeliverySetting.rawValue,
+                                            "timeSensitiveSetting": settings.timeSensitiveSetting.rawValue]
                 if let data = try? JSONSerialization.data(withJSONObject: object) {
                     try? data.write(to: URL(fileURLWithPath: path))
                 }
@@ -85,6 +129,7 @@ final class UsageAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate
             NSApp.terminate(nil)
             return
         }
+        login.migrateExistingIfNeeded()
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem = item
         let mainMenu = NSMenu()
@@ -132,6 +177,15 @@ final class UsageAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate
         updateMenuTitle()
         for name in [NSNotification.Name.NSSystemTimeZoneDidChange,NSNotification.Name.NSCalendarDayChanged] {
             dateObservers.append(NotificationCenter.default.addObserver(forName:name,object:nil,queue:.main) { [weak self] _ in self?.store.refresh() })
+        }
+        if arguments.contains("--window") {
+            let controller = NSHostingController(rootView: UsagePanel(store:store,login:login,openSession:{ [weak self] id in self?.openSession(id) ?? false },quit:{ NSApp.terminate(nil) }))
+            let win = NSWindow(contentViewController:controller)
+            win.title = "Codex Finch"
+            win.styleMask = [.titled,.closable]
+            win.setContentSize(NSSize(width:380,height:780))
+            win.center();win.makeKeyAndOrderFront(nil);NSApp.activate()
+            window=win
         }
         if arguments.contains("--show") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in self?.showPopover() }
@@ -191,7 +245,7 @@ final class UsageAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate
     }
 
     private func setPanel(settings: Bool) {
-        let view = UsagePanel(store: store, openSession: { [weak self] id in
+        let view = UsagePanel(store: store, login: login, openSession: { [weak self] id in
             self?.openSession(id) ?? false
         }, quit: { NSApp.terminate(nil) }, settings: settings)
         let controller = NSHostingController(rootView: view)
@@ -216,6 +270,8 @@ final class UsageAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate
         } else if popover.isShown { popover.performClose(nil) }
         else { showPopover() }
     }
+
+    func applicationDidBecomeActive(_ notification: Notification) { login.refresh() }
 
     private func showPopover() {
         guard let button = statusItem?.button else { return }
@@ -258,8 +314,8 @@ final class UsageAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate
         let settings = arguments.contains("--settings")
         let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)!
         NSApp.appearance = appearance
-        let size = NSSize(width: 460, height: settings ? 740 : 750)
-        let view = NSHostingView(rootView: PreviewScene(store: store, showSettings: settings)
+        let size = NSSize(width: 460, height: settings ? 780 : 860)
+        let view = NSHostingView(rootView: PreviewScene(store: store, showSettings: settings, showStatistics: arguments.contains("--statistics"))
             .environment(\.colorScheme, dark ? .dark : .light))
         view.frame = NSRect(origin: .zero, size: size)
         let win = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)

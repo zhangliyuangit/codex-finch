@@ -122,7 +122,7 @@ final class UsageAccumulator {
             }
         }
         var decoded = (try? JSONSerialization.jsonObject(with: parseData)) as? [String: Any]
-        if compacted, decoded?["timestamp"] as? String == nil || (decoded?["payload"] as? [String:Any])?["turn_id"] as? String == nil {
+        if compacted, decoded?["timestamp"] as? String == nil || (decoded?["payload"] as? [String:Any])?["turn_id"] as? String == nil || (decoded?["payload"] as? [String:Any])?["type"] as? String == nil {
             // The current logger puts metadata before item. For a differently ordered
             // bounded record, fall back to its full JSON rather than infer a false state.
             decoded = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any]

@@ -2,11 +2,13 @@
 
 ## Collector
 
-`UsageStore.swift` reads `~/.codex/state_5.sqlite` through read-only SQLite connections. It monitors 24 recent unarchived, user-root conversations. Project IDs take precedence; otherwise `ProjectGrouping.swift` selects the longest saved root with directory-boundary checks. Shared roots prefer the primary root, then sidebar order and ID.
+`UsageStore.swift` reads `~/.codex/state_5.sqlite` through read-only SQLite connections. It monitors a user-selected 24/50/100 recent unarchived, user-root conversations. Project IDs take precedence; otherwise `ProjectGrouping.swift` selects the longest saved root with directory-boundary checks. Shared roots prefer the primary root, then sidebar order and ID.
 
 `UsageCore.swift` starts with a bounded 512 KiB rollout tail, then reads increments up to 1 MiB. Partial lines, inode changes, truncation, and skipped gaps are handled explicitly. Missing gaps invalidate activity evidence while retaining the last usage snapshot. SQLite/WAL and rollout changes arrive through vnode events coalesced over 1.5 seconds. Metadata changes do not reread unchanged rollouts.
 
-`DailyUsage.swift` independently streams every local rollout path whose thread metadata was updated since local midnight, including archived conversations and subagents. A separate SQLite cache preserves offsets and counted usage. `token_usage_record.usage` is counted once per response ID; any turn with those records excludes that turn's legacy `token_count` snapshots. Legacy-only turns use valid cumulative deltas, with missing baselines marked incomplete. Calendar intervals support timezone changes and daylight-saving days.
+`DailyUsage.swift` independently streams every local rollout path whose thread metadata was updated since local midnight, including archived conversations and subagents. A separate SQLite cache preserves offsets and counted usage. Version 0.6 records project ownership, model and input/cached/output components with each counted event. Existing v1 caches are rebuilt once. A separate source catalog lets project metadata change without rereading log bytes. Declared original thread ownership is retained across copied logs; unknown ownership stays unassigned. Indexed usage events retain up to 30 days, and prior dates are shown as lower bounds because the collector does not rescan every historical conversation. The UI reads project/model/day summaries from the already-built snapshot.
+
+`token_usage_record.usage` is counted once per response ID; any turn with those records excludes that turn's legacy `token_count` snapshots. Legacy-only turns use valid cumulative deltas, with missing baselines marked incomplete. Calendar intervals support timezone changes and daylight-saving days.
 
 Raw incomplete lines are not persisted: the cache saves their starting offset so the next read can recover them. Log history copies and file replacements retain the response-ID deduplication set. The upstream protocol describes per-response records as best-effort observed Responses API usage: [TokenUsageRecord](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/protocol.rs).
 
@@ -19,6 +21,12 @@ For compatibility with the earlier local prototype, the bundle ID remains `local
 `Activity.swift` follows explicit lifecycle events and matching turns. Nonblocking `request_user_input_async` and queued user messages do not imply waiting/running. Stale running evidence becomes unknown after ten minutes.
 
 `NoticePolicy.swift` and `LocalNotifications.swift` handle native notifications. Cold startup silently seeds a baseline. Last 200 keys are retained; old completion/attention events over five minutes and quota snapshots over fifteen minutes cannot notify. Notification categories and sound are independently configurable. Clicks validate the session UUID before opening `codex://threads/<UUID>`.
+
+## Login items and updates
+
+`LoginItemController` reads and changes `SMAppService.mainApp`. New installs are off by default. An existing owned legacy agent is migrated only after native registration becomes enabled, with an Application Support backup. The old job is disabled without killing the current app. Unrelated labels, executables, or arguments are never removed. Approval-pending state is shown distinctly, and activation refreshes status.
+
+`ReleaseCheck` sends a public GitHub Releases request only after an explicit click, validates a release URL and version, and neither downloads nor executes updates. Normal collection remains offline. Sanitized diagnostics include statuses and counters only.
 
 ## Diagnostics
 
@@ -33,9 +41,13 @@ python3 scripts/make-demo.py /tmp/finch-demo
 "$APP" --data-root /tmp/finch-demo --daily-cache /tmp/finch-demo/cache.sqlite --dump /tmp/finch-snapshot.json
 ```
 
+`--window` opens the same interactive native panel in a titled validation window. `--statistics` selects the statistics fixture view during rendering. `--login-status /path` exports the actual login-item status. `--verify-native /path` tests the notification path and registered link handler using the current preferences; it can send one test notification and does not claim visible banner or click verification.
+
 `--benchmark 30` runs the collector without a status item; `--diagnostics /path` saves snapshots; `--show` opens the panel; `--notification-status /path` reads native notification settings without requesting permission or scheduling a notice. `--metric` persists the selected metric.
 
 ## Validation
+
+Version 0.6 verification, including live UI checks and remaining delivery limits, is recorded in [validation-0.6.md](validation-0.6.md).
 
 The five test suites cover parsing, deduplication, cumulative counter handling, project roots, file-driven updates, pause/resume, lifecycle matching, notification policy, archived/subagent daily coverage, restarts, file replacement, midnight, and DST. Version 0.5 has 102 passing assertions.
 

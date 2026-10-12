@@ -45,6 +45,11 @@ import Foundation
         let partial = UsageAccumulator()
         partial.append(event("item_completed", extra: ["item":["type":"CommandExecution","stdout":String(repeating:"x",count:100_000)]]))
         check(partial.activity?.phase == .running, "尾部缺少开始事件时使用轮次进度证据")
+        let ordered = UsageAccumulator()
+        let longOutput = String(repeating:"x",count:100_000)
+        let longReorderedJSON = "{\"type\":\"event_msg\",\"timestamp\":\"\(stamp(0))\",\"payload\":{\"turn_id\":\"A\",\"item\":{\"type\":\"CommandExecution\",\"stdout\":\"\(longOutput)\"},\"type\":\"item_completed\"}}\n"
+        ordered.append(Data(longReorderedJSON.utf8))
+        check(ordered.activity?.phase == .running, "长进度记录的事件类型在 item 后仍可识别")
         let newer = UsageAccumulator()
         newer.append(event("task_complete"))
         newer.append(event("item_completed", turn:"B", at:1, extra:["item":["type":"Reasoning"]]))

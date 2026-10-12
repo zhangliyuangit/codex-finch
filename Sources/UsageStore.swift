@@ -25,6 +25,11 @@ struct UsageSnapshot: Codable {
     var dailyError: String?
     var syncedAt: Date?
     var error: String?
+    var sanitizedDiagnostics: String {
+        let fields: [String:Any] = ["version":Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development", "sessions":sessions.count, "running":activeCount(at:Date()), "waiting":waitingCount, "hasQuota":quota != nil, "sourceError":error != nil, "dailyError":dailyError != nil, "dailyPartial":daily?.partial ?? true, "missingFiles":daily?.missingFiles ?? 0, "refreshCount":refreshCount, "tailBytesRead":bytesRead, "dailyBytesRead":daily?.bytesRead ?? 0, "lastLoadMilliseconds":loadMilliseconds]
+        guard let data=try? JSONSerialization.data(withJSONObject:fields,options:[.prettyPrinted,.sortedKeys]) else { return "诊断暂不可用" }
+        return String(decoding:data,as:UTF8.self)
+    }
     var activityEvents: [SessionSignal] = []
     var bytesRead: Int = 0
     var refreshCount: Int = 0
@@ -62,6 +67,12 @@ final class UsageStore: ObservableObject {
     @Published private(set) var snapshot = UsageSnapshot()
     @Published var metric: MenuMetric {
         didSet { UserDefaults.standard.set(metric.rawValue, forKey: "menuMetric") }
+    }
+    @Published var sessionLimit = UserDefaults.standard.integer(forKey:"sessionLimit") == 0 ? 24 : UserDefaults.standard.integer(forKey:"sessionLimit") {
+        didSet {
+            UserDefaults.standard.set([24,50,100].contains(sessionLimit) ? sessionLimit : 24, forKey:"sessionLimit")
+            refresh()
+        }
     }
     @Published var paused = false {
         didSet { paused ? stopMonitoring() : resume() }
@@ -205,13 +216,14 @@ final class UsageStore: ObservableObject {
             FROM threads
             WHERE archived=0 AND agent_path IS NULL
                   AND (thread_source IS NULL OR thread_source='user')
-            ORDER BY updated_at DESC, id ASC LIMIT 24
+            ORDER BY updated_at DESC, id ASC LIMIT ?
             """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
             throw NSError(domain: "UsageStore", code: 2, userInfo: [NSLocalizedDescriptionKey: "Codex 数据格式暂不兼容"])
         }
         defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int(statement,1,Int32([24,50,100].contains(sessionLimit) ? sessionLimit : 24))
         func string(_ column: Int32) -> String {
             sqlite3_column_text(statement, column).map { String(cString: $0) } ?? ""
         }
@@ -273,7 +285,8 @@ final class UsageStore: ObservableObject {
         }
         defer { sqlite3_close(db) };sqlite3_busy_timeout(db,150)
         var statement: OpaquePointer?
-        let sql = "SELECT id,rollout_path FROM threads WHERE updated_at>=? ORDER BY id"
+        let catalog = queryProjects(db:db)
+        let sql = "SELECT id,rollout_path,project_id,cwd,COALESCE(model,'') FROM threads WHERE updated_at>=? ORDER BY id"
         guard sqlite3_prepare_v2(db,sql,-1,&statement,nil)==SQLITE_OK else { throw NSError(domain:"UsageStore",code:5) }
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_int64(statement,1,Int64(start.timeIntervalSince1970))
@@ -281,7 +294,11 @@ final class UsageStore: ObservableObject {
         while status == SQLITE_ROW {
             let id = sqlite3_column_text(statement,0).map { String(cString:$0) } ?? ""
             let path = sqlite3_column_text(statement,1).map { String(cString:$0) } ?? ""
-            if !id.isEmpty { result.append(DailySource(id:id,path:path)) }
+            let projectID = sqlite3_column_text(statement,2).map { String(cString:$0) }
+            let cwd = sqlite3_column_text(statement,3).map { String(cString:$0) } ?? ""
+            let model = sqlite3_column_text(statement,4).map { String(cString:$0) } ?? ""
+            let project = catalog.resolve(projectID:projectID,cwd:cwd)
+            if !id.isEmpty { result.append(DailySource(id:id,path:path,projectID:project?.id,projectName:project?.name,model:model)) }
             status = sqlite3_step(statement)
         }
         guard status == SQLITE_DONE else { throw NSError(domain:"UsageStore",code:6) }

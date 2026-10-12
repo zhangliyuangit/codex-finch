@@ -34,24 +34,24 @@ final class LocalNotifications: NSObject, UNUserNotificationCenterDelegate {
         let plans = policy.evaluate(snapshot, preferences: preferences, now: Date())
         if before != policy.seenKeys { UserDefaults.standard.set(policy.seenKeys, forKey: "noticeSeenKeys") }
         guard preferences.enabled, authorized else { return }
-        plans.forEach(deliver)
+        plans.forEach { deliver($0) }
     }
 
-    func test() {
+    func test(completion: ((String?) -> Void)? = nil) {
         guard preferences.enabled else {
-            store?.notificationMessage = "请先开启通知"; return
+            store?.notificationMessage = "请先开启通知"; completion?(nil); return
         }
         updateAuthorization(requestIfNeeded: true) { [weak self] allowed in
-            guard let self, allowed else { return }
+            guard let self, allowed else { completion?(nil); return }
             let session = self.store?.snapshot.sessions.first
             self.deliver(NoticePlan(id: "test-" + UUID().uuidString, kind: .completed,
                                    title: "Codex Finch · 测试通知", body: "通知已连接；点击可打开最近会话。",
-                                   sessionID: session?.id))
+                                   sessionID: session?.id), completion:completion)
         }
     }
 
-    private func deliver(_ plan: NoticePlan) {
-        guard preferences.enabled else { return }
+    private func deliver(_ plan: NoticePlan, completion: ((String?) -> Void)? = nil) {
+        guard preferences.enabled else { completion?(nil);return }
         let content = UNMutableNotificationContent()
         content.title = plan.title
         content.body = plan.body
@@ -62,6 +62,7 @@ final class LocalNotifications: NSObject, UNUserNotificationCenterDelegate {
             DispatchQueue.main.async {
                 if let error { self?.store?.notificationMessage = "发送失败：\(error.localizedDescription)" }
                 else { self?.store?.notificationMessage = "通知已提交；横幅显示取决于系统通知与专注模式设置" }
+                completion?(error == nil ? plan.id : nil)
             }
         }
     }

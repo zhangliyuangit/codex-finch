@@ -5,15 +5,20 @@ private let accent = Color(red: 0.26, green: 0.77, blue: 0.57)
 
 struct UsagePanel: View {
     @ObservedObject var store: UsageStore
+    @ObservedObject var login = LoginItemController()
     var openSession: (String) -> Bool
     var quit: () -> Void
     @State var settings = false
+    @State var statistics = false
+    @StateObject private var releases = ReleaseCheck()
+    @State private var copiedDiagnostics = false
     @State private var openError = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header.padding(.horizontal, 22).padding(.top, 22).padding(.bottom, 18)
             if settings { settingsContent }
+            else if statistics { StatisticsView(snapshot: store.snapshot) }
             else { mainContent }
             footer
         }
@@ -29,7 +34,7 @@ struct UsagePanel: View {
             Image(nsImage: FinchBrand.appImage).resizable().scaledToFit()
                 .frame(width: 28, height: 28)
             VStack(alignment: .leading, spacing: 3) {
-                Text(settings ? "偏好设置" : "Codex Finch")
+                Text(settings ? "偏好设置" : statistics ? "用量统计" : "Codex Finch")
                     .font(.system(size: 17, weight: .semibold))
                 HStack(spacing: 4) {
                     Circle().fill(store.paused ? Color.secondary : accent).frame(width: 4, height: 4)
@@ -46,6 +51,13 @@ struct UsagePanel: View {
                     .help("读取最新的本地记录；不会向模型发出请求")
                     .accessibilityLabel("刷新")
             }
+            if !settings {
+                Button { statistics.toggle() } label: {
+                    Image(systemName: statistics ? "arrow.left" : "chart.bar.xaxis")
+                        .font(.system(size: 14)).frame(width: 27, height: 27)
+                }.buttonStyle(.plain).foregroundStyle(.secondary)
+                    .accessibilityLabel(statistics ? "返回会话" : "用量统计")
+            }
             Button { settings.toggle() } label: {
                 Image(systemName: settings ? "xmark" : "gearshape")
                     .font(.system(size: 14)).frame(width: 27, height: 27)
@@ -58,6 +70,10 @@ struct UsagePanel: View {
     private var mainContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             quotaBlock.padding(.horizontal, 22)
+            if store.snapshot.dailyError != nil {
+                Text("今日统计暂不可用 · 请刷新或查看诊断")
+                    .font(.system(size:10.5)).foregroundStyle(.orange).padding(.horizontal,22).padding(.top,8)
+            }
             HStack {
                 Text("今日总 token").font(.system(size:11)).foregroundStyle(.secondary)
                 Spacer()
@@ -179,9 +195,20 @@ struct UsagePanel: View {
             .help("这是完整会话的累计记录，可能包含历史上下文；缓存 token 已含在输入中，推理 token 已含在输出中。token 不能直接换算为订阅账单。")
     }
 
+    private var loginBinding: Binding<Bool> {
+        Binding(get: { login.state.isEnabled }, set: { login.setEnabled($0) })
+    }
     private var settingsContent: some View {
         ScrollView {
         VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 8) {
+                preferenceToggle("登录后自动启动", selection: loginBinding)
+                Text(login.message).font(.system(size: 10.5)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if login.state == .approvalRequired {
+                    Button("打开登录项设置") { login.openSystemSettings() }.buttonStyle(.borderless)
+                }
+            }
             VStack(alignment: .leading, spacing: 10) {
                 Text("菜单栏显示").font(.system(size: 12, weight: .semibold))
                 Picker("常驻指标", selection: $store.metric) {
@@ -213,6 +240,9 @@ struct UsagePanel: View {
                     Text("同一事件只提醒一次，启动不补推旧记录。")
                         .font(.system(size: 10)).foregroundStyle(.secondary)
                     Spacer(minLength: 5)
+                    Button("系统通知设置") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") { NSWorkspace.shared.open(url) }
+                    }.buttonStyle(.borderless).font(.system(size: 10.5))
                     Button("测试通知") { store.onTestNotification?() }
                         .buttonStyle(.borderless).font(.system(size: 10.5))
                         .disabled(!store.notifications.enabled)
@@ -223,18 +253,48 @@ struct UsagePanel: View {
                 Text("暂停后停止监听；恢复时读取最新记录。")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("监测最近会话").font(.system(size:12))
+                    Spacer()
+                    Picker("监测数量",selection:$store.sessionLimit) {
+                        ForEach([24,50,100],id: \.self) { Text("\($0) 条").tag($0) }
+                    }.labelsHidden().frame(width:100)
+                }
+                Text("增加范围会监听更多日志；今日总量不受此设置影响。")
+                    .font(.system(size:10.5)).foregroundStyle(.secondary)
+            }
             Divider()
             VStack(alignment: .leading, spacing: 10) {
                 Label("轻量本地采集", systemImage: "leaf").font(.system(size: 12, weight: .semibold))
-                Text("列表保留最近 24 个会话；今日总量覆盖全部今日日志。首次回填后缓存读取位置，只读新增内容。没有定时轮询或网络请求。")
+                Text("列表保留最近 \(store.sessionLimit) 个会话；今日总量覆盖全部今日日志。首次回填后缓存读取位置，只读新增内容。没有定时轮询或网络请求。")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Text("账号额度是日志快照。官方会话额度和费用暂未接入；不把账号额度变化当成某个会话的消耗。")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            VStack(alignment:.leading,spacing:8) {
+                HStack {
+                    Button(releases.checking ? "正在检查…" : "检查更新") { releases.check() }
+                        .disabled(releases.checking).buttonStyle(.borderless)
+                    Spacer()
+                    Button(copiedDiagnostics ? "已复制诊断" : "复制诊断") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(store.snapshot.sanitizedDiagnostics,forType:.string)
+                        copiedDiagnostics=true
+                    }.buttonStyle(.borderless)
+                }.font(.system(size:11))
+                Text(releases.message).font(.system(size:10.5)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal:false,vertical:true)
+                if let url = releases.releaseURL {
+                    Button("打开发布页") { NSWorkspace.shared.open(url) }.buttonStyle(.borderless)
+                }
+                Text("诊断仅含状态和计数，不包含会话标题、路径或内容。")
+                    .font(.system(size:10)).foregroundStyle(.secondary)
+            }
             HStack {
-                Text("Codex Finch 0.5 · 本地记录").font(.system(size: 10.5)).foregroundStyle(.secondary)
+                Text("Codex Finch 0.6 · 本地记录").font(.system(size: 10.5)).foregroundStyle(.secondary)
                 Spacer()
                 Button("退出", action: quit).buttonStyle(.borderless).font(.system(size: 11))
             }.padding(.top, 10)
@@ -255,7 +315,7 @@ struct UsagePanel: View {
             Divider().opacity(0.5)
             HStack(spacing: 5) {
                 Image(systemName: settings ? "lock" : "arrow.up.forward.app").font(.system(size: 10))
-                Text(settings ? "数据留在本机" : "点击会话，在 Codex 中打开")
+                Text(settings ? "数据留在本机" : statistics ? "本机已记录用量 · 非云端账单" : "点击会话，在 Codex 中打开")
                     .font(.system(size: 10.5))
                 Spacer()
                 if !settings {
@@ -272,10 +332,21 @@ private struct ProjectSessionList: View {
     @State private var expandedProjects = Set<String>()
     @State private var allSessionsProjects = Set<String>()
     @State private var initialized = false
-    private var groups: [SessionGroup] { SessionGroup.make(from: sessions) }
+    @State private var search = ""
+    @State private var filter: SessionFilter = .all
+    private var filtered: [SessionRecord] { sessions.filter { filter.matches($0,search:search,now:Date()) } }
+    private var groups: [SessionGroup] { SessionGroup.make(from: filtered) }
 
     var body: some View {
         VStack(spacing: 0) {
+            TextField("搜索会话或项目",text:$search).textFieldStyle(.roundedBorder)
+                .font(.system(size:11)).padding(.horizontal,22).padding(.bottom,8)
+            Picker("会话筛选",selection:$filter) {
+                ForEach(SessionFilter.allCases) { Text($0.label).tag($0) }
+            }.pickerStyle(.segmented).labelsHidden().padding(.horizontal,22).padding(.bottom,8)
+            if groups.isEmpty {
+                Text("没有匹配的会话").font(.system(size:11)).foregroundStyle(.secondary).padding(16)
+            }
             ScrollView {
                 VStack(spacing: 2) {
                     ForEach(groups) { group in
@@ -309,7 +380,7 @@ private struct ProjectSessionList: View {
                             .accessibilityLabel("\(expanded ? "折叠" : "展开")项目 \(group.name)，\(group.sessions.count) 个最近会话")
                         if expanded {
                             let showingAll = allSessionsProjects.contains(group.id)
-                            let visible = Array(group.sessions.prefix(showingAll ? 24 : 2))
+                            let visible = Array(group.sessions.prefix(showingAll ? group.sessions.count : 2))
                             ForEach(Array(visible.enumerated()), id: \.element.id) { index, session in
                                 SessionRow(session: session, active: session.id == sessions.first?.id) { openSession(session.id) }
                                     .padding(.leading, 14)
@@ -334,7 +405,7 @@ private struct ProjectSessionList: View {
                     }
                 }
             }.scrollIndicators(.hidden).frame(height: min(222, listHeight))
-            Text("\(groups.filter { !$0.isUnassigned }.count) 个项目 · \(sessions.count) 个最近会话")
+            Text("\(groups.filter { !$0.isUnassigned }.count) 个项目 · \(filtered.count) / \(sessions.count) 个最近会话")
                 .font(.system(size: 10.5)).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity).padding(.vertical, 9)
         }.onAppear {
@@ -416,6 +487,7 @@ private struct ActivityBadge: View {
 struct PreviewScene: View {
     @ObservedObject var store: UsageStore
     var showSettings = false
+    var showStatistics = false
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
@@ -436,14 +508,14 @@ struct PreviewScene: View {
                 VStack(spacing: 0) {
                     Image(systemName: "triangle.fill").font(.system(size: 12)).rotationEffect(.degrees(0))
                         .foregroundStyle(Color(nsColor: .windowBackgroundColor)).offset(x: 121, y: 3)
-                    UsagePanel(store: store, openSession: { _ in true }, quit: {}, settings: showSettings)
+                    UsagePanel(store: store, openSession: { _ in true }, quit: {}, settings: showSettings, statistics: showStatistics)
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                         .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.primary.opacity(0.12), lineWidth: 0.5))
                         .shadow(color: .black.opacity(0.2), radius: 22, y: 9)
                 }.padding(.trailing, 16)
             }.padding(.top, 2)
             Spacer(minLength: 20)
-        }.frame(width: 460, height: showSettings ? 740 : 750)
+        }.frame(width: 460, height: showSettings ? 780 : 860)
             .background(Color(nsColor: .underPageBackgroundColor))
     }
 }
