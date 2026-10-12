@@ -18,6 +18,8 @@ For compatibility with the earlier local prototype, the bundle ID remains `local
 
 `App.swift` owns an AppKit status item and transient popover. `UsageViews.swift` renders SwiftUI content only while the panel is open. `FinchBrand.swift` creates the static template mark once. Quota expiry, activity staleness, and midnight use one-shot deadlines, not periodic scans.
 
+Version 0.6.1 presents today's total before compact account quota rows. The recent-conversation summary uses the same link callback as the project list. Running/waiting filters show counts without a search field; settings opens from the footer. These presentation changes read the existing snapshots and add no collectors or timers. Native refinement checks are recorded in [validation-0.6.1.md](validation-0.6.1.md).
+
 `Activity.swift` follows explicit lifecycle events and matching turns. Nonblocking `request_user_input_async` and queued user messages do not imply waiting/running. Stale running evidence becomes unknown after ten minutes.
 
 `NoticePolicy.swift` and `LocalNotifications.swift` handle native notifications. Cold startup silently seeds a baseline. Last 200 keys are retained; old completion/attention events over five minutes and quota snapshots over fifteen minutes cannot notify. Notification categories and sound are independently configurable. Clicks validate the session UUID before opening `codex://threads/<UUID>`.

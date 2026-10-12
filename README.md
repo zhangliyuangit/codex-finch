@@ -17,7 +17,7 @@ Screenshots use synthetic projects and usage records. They are native view rende
 ## Features
 
 - Configurable menu bar: today's tokens, remaining quota, active sessions, or icon only.
-- Sessions grouped by project, with search, running/waiting filters, and conversation links.
+- Compact sessions grouped by project, with running/waiting filters and conversation links.
 - Today’s tokens broken down by project and model, with 7/30-day observed local history.
 - System-backed launch-at-login toggle and configurable 24/50/100 recent main conversations.
 - Explicit GitHub release checks and sanitized diagnostics without conversation titles or paths.

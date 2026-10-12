@@ -314,7 +314,7 @@ final class UsageAppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate
         let settings = arguments.contains("--settings")
         let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)!
         NSApp.appearance = appearance
-        let size = NSSize(width: 460, height: settings ? 780 : 860)
+        let size = NSSize(width: 460, height: settings ? 780 : arguments.contains("--statistics") ? 610 : 800)
         let view = NSHostingView(rootView: PreviewScene(store: store, showSettings: settings, showStatistics: arguments.contains("--statistics"))
             .environment(\.colorScheme, dark ? .dark : .light))
         view.frame = NSRect(origin: .zero, size: size)

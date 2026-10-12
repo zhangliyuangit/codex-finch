@@ -16,7 +16,7 @@ struct StatisticsView: View {
             }.pickerStyle(.segmented).labelsHidden()
             if snapshot.dailyError != nil {
                 Text("统计暂不可用，请刷新；诊断可在设置中复制。")
-                    .font(.system(size:11)).foregroundStyle(.orange)
+                    .font(.system(size:11)).foregroundStyle(finchWarning)
             } else if let daily = snapshot.daily {
                 if section == 2 { history(daily) }
                 else {
@@ -29,11 +29,12 @@ struct StatisticsView: View {
                                     HStack {
                                         Text(row.name).lineLimit(1)
                                         Spacer(minLength:8)
-                                        Text(UsageFormat.tokens(row.tokens)).monospacedDigit().fontWeight(.medium)
+                                        Text(UsageFormat.tokens(row.tokens)).monospacedDigit()
+                                            .font(.system(size: 12, weight: .semibold, design: .rounded))
                                     }.font(.system(size:12))
                                     GeometryReader { geo in
                                         Capsule().fill(Color.primary.opacity(0.07)).overlay(alignment:.leading) {
-                                            Capsule().fill(Color.green.opacity(0.65))
+                                            Capsule().fill(finchAccent)
                                                 .frame(width:geo.size.width * min(1,Double(row.tokens)/Double(max(1,daily.tokens))))
                                         }
                                     }.frame(height:4)
@@ -51,7 +52,7 @@ struct StatisticsView: View {
                         .font(.system(size:10.5)).foregroundStyle(.secondary)
                 }
             } else { Text("正在读取本地用量…").font(.system(size:12)).foregroundStyle(.secondary).frame(height:290) }
-        }.padding(.horizontal,22).padding(.bottom,18)
+        }.padding(.horizontal,20).padding(.bottom,16)
     }
     private func history(_ daily: DailyTokenTotal) -> some View {
         let calendar = Calendar.autoupdatingCurrent
@@ -68,7 +69,7 @@ struct StatisticsView: View {
                             Text(row.start,format:.dateTime.month().day()).frame(width:58,alignment:.leading)
                             GeometryReader { geo in
                                 Capsule().fill(Color.primary.opacity(0.06)).overlay(alignment:.leading) {
-                                    Capsule().fill(Color.green.opacity(0.65)).frame(width:geo.size.width*Double(row.tokens)/Double(maxTokens))
+                                    Capsule().fill(finchAccent).frame(width:geo.size.width*Double(row.tokens)/Double(maxTokens))
                                 }
                             }.frame(height:6)
                             Text((row.partial ? "≥" : "")+UsageFormat.tokens(row.tokens)).monospacedDigit().frame(width:65,alignment:.trailing)

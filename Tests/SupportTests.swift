@@ -7,12 +7,12 @@ import Foundation
         let now=Date()
         var session=SessionRecord(id:"00000000-0000-4000-8000-000000000001",title:"Secret conversation",path:"/private/secret.jsonl",updatedAt:now,model:"",metadataTokens:20,projectName:"Atlas API")
         session.activity=SessionActivity(phase:.running,timestamp:now)
-        check(SessionFilter.running.matches(session,search:"atlas",now:now),"project search combines with running state")
-        check(!SessionFilter.running.matches(session,search:"",now:now.addingTimeInterval(601)),"stale running activity is excluded from running filter")
+        check(SessionFilter.running.matches(session,now:now),"running filter includes current activity")
+        check(!SessionFilter.running.matches(session,now:now.addingTimeInterval(601)),"stale running activity is excluded from running filter")
         session.activity=SessionActivity(phase:.waiting,timestamp:now)
-        check(SessionFilter.waiting.matches(session,search:"  SECRET  ",now:now),"title search is case insensitive and trims whitespace")
-        check(!SessionFilter.running.matches(session,search:"",now:now),"waiting is separate from running")
-        check(!SessionFilter.all.matches(session,search:"unmatched",now:now),"unmatched search excludes conversation")
+        check(SessionFilter.waiting.matches(session,now:now),"waiting filter includes a blocked conversation")
+        check(!SessionFilter.running.matches(session,now:now),"waiting is separate from running")
+        check(SessionFilter.all.matches(session,now:now),"all filter includes waiting conversations")
         var snapshot=UsageSnapshot();snapshot.sessions=[session];snapshot.error="/private/secret.jsonl"
         let diagnostic=snapshot.sanitizedDiagnostics
         check(!diagnostic.contains("Secret conversation") && !diagnostic.contains("/private/") && !diagnostic.contains("Atlas API"),"diagnostic excludes titles paths and project names")

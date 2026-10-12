@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.1 — 2026-10-12
+
+- Remove conversation search and retain running/waiting filters with visible counts.
+- Put today's total first, compact account quota and the recent-conversation summary, and move settings to the footer.
+- Make the recent-conversation summary clickable and align project rows, statistics colors and native hover feedback.
+- No additional polling, background requests, animation or dependencies.
+
 ## 0.6.0 — 2026-10-12
 
 - System-backed launch-at-login settings and safe migration of the existing owned startup agent.
