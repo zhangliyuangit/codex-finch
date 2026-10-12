@@ -5,6 +5,24 @@ import Darwin
 struct DailySource {
     var id: String
     var path: String
+    var projectID: String? = nil
+    var projectName: String? = nil
+    var model: String = ""
+}
+struct UsageBreakdown: Codable, Equatable, Identifiable {
+    var id: String
+    var name: String
+    var tokens: Int64
+    var input: Int64
+    var cached: Int64
+    var output: Int64
+    var requests: Int
+}
+struct UsageDay: Codable, Equatable, Identifiable {
+    var start: Date
+    var tokens: Int64
+    var partial: Bool
+    var id: Date { start }
 }
 struct DailyTokenTotal: Codable, Equatable {
     var start: Date
@@ -16,6 +34,10 @@ struct DailyTokenTotal: Codable, Equatable {
     var partial: Bool
     var missingFiles: Int
     var bytesRead: Int
+    var projects: [UsageBreakdown] = []
+    var models: [UsageBreakdown] = []
+    var history: [UsageDay] = []
+    var observedSince: Date? = nil
     var label: String { (partial ? "≥" : "") + UsageFormat.tokens(tokens) }
 }
 final class DailyUsageIndex {
@@ -33,15 +55,14 @@ final class DailyUsageIndex {
         try openCache()
         try execute("BEGIN IMMEDIATE")
         do {
-            let generation = "v1|\(calendar.timeZone.identifier)|\(interval.start.timeIntervalSince1970)"
-            let stored: [String] = try rows("SELECT value FROM meta WHERE key='day'") { string($0,0) }
-            if stored.first != generation {
-                try execute("DELETE FROM files");try execute("DELETE FROM events");try execute("DELETE FROM gaps")
-                try execute("INSERT OR REPLACE INTO meta VALUES('day',?)",[.text(generation)])
-            }
+            let retention = calendar.date(byAdding: .day, value: -29, to: interval.start)!
+            try execute("DELETE FROM events WHERE at<?", [.real(retention.timeIntervalSince1970)])
+            try execute("DELETE FROM gaps WHERE at<?", [.real(retention.timeIntervalSince1970)])
+            try execute("INSERT OR IGNORE INTO meta VALUES('observed',?)", [.text(String(interval.start.timeIntervalSince1970))])
             preciseTurns = Set(try rows("SELECT DISTINCT turn_key FROM events WHERE precise=1") { string($0,0) })
             var missing = 0, damaged = false
             for source in sources {
+                try execute("INSERT OR REPLACE INTO sources VALUES(?,?,?,?)", [.text(source.id), .text(source.projectID ?? "__unassigned__"), .text(source.projectName ?? "未归属项目"), .text(source.model.isEmpty ? "未知模型" : source.model)])
                 do {
                     let values: [Data] = try rows("SELECT state FROM files WHERE id=?",[.text(source.id)]) { blob($0,0) }
                     var state = values.first.flatMap { try? JSONDecoder().decode(DailyFileState.self,from:$0) } ?? DailyFileState()
@@ -62,11 +83,40 @@ final class DailyUsageIndex {
                 (sqlite3_column_int64($0,0),Int(sqlite3_column_int($0,1)),Int(sqlite3_column_int($0,2)))
             }
             let gaps: [Int] = try rows("SELECT COUNT(*) FROM gaps g WHERE g.at>=? AND g.at<? AND NOT EXISTS(SELECT 1 FROM events p WHERE p.precise=1 AND p.turn_key=g.turn_key)", [.real(interval.start.timeIntervalSince1970),.real(interval.end.timeIntervalSince1970)]) { Int(sqlite3_column_int($0,0)) }
+            let window: [DailyValue] = [.real(interval.start.timeIntervalSince1970), .real(interval.end.timeIntervalSince1970)]
+            func breakdown(model: Bool) throws -> [UsageBreakdown] {
+                let id = model ? "COALESCE(NULLIF(e.model,''),s.model,'未知模型')" : "COALESCE(s.project_id,'__unassigned__')"
+                let name = model ? id : "COALESCE(s.name,'未归属项目')"
+                return try rows("SELECT \(id),\(name),SUM(e.tokens),SUM(e.input),SUM(e.cached),SUM(e.output),COUNT(*) FROM events e LEFT JOIN sources s ON e.source_id=s.id WHERE e.at>=? AND e.at<? AND \(included) GROUP BY \(id) ORDER BY SUM(e.tokens) DESC,1", window) {
+                    UsageBreakdown(id: string($0,0),name:string($0,1),tokens:sqlite3_column_int64($0,2),input:sqlite3_column_int64($0,3),cached:sqlite3_column_int64($0,4),output:sqlite3_column_int64($0,5),requests:Int(sqlite3_column_int($0,6)))
+                }
+            }
+            let projectTotals = try breakdown(model:false), modelTotals = try breakdown(model:true)
+            let historyEvents: [(Date,Int64,Bool)] = try rows("SELECT e.at,e.tokens,e.precise FROM events e WHERE e.at>=? AND e.at<? AND \(included)", [.real(retention.timeIntervalSince1970),.real(interval.end.timeIntervalSince1970)]) {
+                (Date(timeIntervalSince1970:sqlite3_column_double($0,0)),sqlite3_column_int64($0,1),sqlite3_column_int($0,2)==0)
+            }
+            var dayTotals: [Date:UsageDay] = [:]
+            for (date,tokens,partial) in historyEvents {
+                let day = calendar.startOfDay(for:date)
+                var item = dayTotals[day] ?? UsageDay(start:day,tokens:0,partial:false)
+                item.tokens += tokens;item.partial = item.partial || partial || day != interval.start;dayTotals[day]=item
+            }
+            let historyGaps: [Date] = try rows("SELECT g.at FROM gaps g WHERE g.at>=? AND g.at<? AND NOT EXISTS(SELECT 1 FROM events p WHERE p.precise=1 AND p.turn_key=g.turn_key)", [.real(retention.timeIntervalSince1970),.real(interval.end.timeIntervalSince1970)]) { Date(timeIntervalSince1970:sqlite3_column_double($0,0)) }
+            for date in historyGaps {
+                let day=calendar.startOfDay(for:date)
+                var item=dayTotals[day] ?? UsageDay(start:day,tokens:0,partial:true)
+                item.partial=true;dayTotals[day]=item
+            }
+            let observed: [String] = try rows("SELECT value FROM meta WHERE key='observed'") { string($0,0) }
             try execute("COMMIT")
             let result = stats.first ?? (0,0,0)
+            let partial = missing>0 || damaged || result.2>0 || (gaps.first ?? 0)>0
+            if dayTotals[interval.start] == nil { dayTotals[interval.start] = UsageDay(start:interval.start,tokens:result.0,partial:partial) }
+            else if partial { dayTotals[interval.start]?.partial = true }
             return DailyTokenTotal(start:interval.start,end:interval.end,timeZone:calendar.timeZone.identifier,
-                tokens:result.0,requests:result.1,files:sources.count,partial:missing>0 || damaged || result.2>0 || (gaps.first ?? 0)>0,
-                missingFiles:missing,bytesRead:bytesRead)
+                tokens:result.0,requests:result.1,files:sources.count,partial:partial,
+                missingFiles:missing,bytesRead:bytesRead, projects:projectTotals,models:modelTotals,
+                history:dayTotals.values.sorted { $0.start<$1.start }, observedSince:observed.first.flatMap(Double.init).map { Date(timeIntervalSince1970:$0) })
         } catch { try? execute("ROLLBACK");throw error }
     }
 
@@ -120,7 +170,9 @@ final class DailyUsageIndex {
         }
         let event = payload["type"] as? String
         if type == "turn_context" || (type == "event_msg" && (event == "task_started" || event == "turn_started")) {
-            state.turnID = payload["turn_id"] as? String;return
+            state.turnID = payload["turn_id"] as? String
+            if let model = payload["model"] as? String { state.model = model }
+            return
         }
         if type == "token_usage_record" || (type == "event_msg" && event == "token_usage_record") {
             let turn = payload["turn_id"] as? String ?? state.turnID
@@ -130,8 +182,10 @@ final class DailyUsageIndex {
                   let usage = DailyCounts(payload["usage"]),usage.actual else {
                 try gap(key:"record|\(turnKey)|\(stamp)",turn:turnKey,date:date);return
             }
-            try execute("INSERT INTO events VALUES(?,?,?,?,1) ON CONFLICT(key) DO UPDATE SET tokens=MAX(tokens,excluded.tokens),at=MIN(at,excluded.at)",
-                        [.text("response|"+id),.text(turnKey),.real(date.timeIntervalSince1970),.integer(usage.total)])
+            let requestedOwner = payload["thread_id"] as? String
+            let owner = requestedOwner.flatMap { $0.isEmpty ? nil : $0 } ?? source.id
+            try execute("INSERT INTO events(key,turn_key,at,tokens,precise,source_id,input,cached,output,model) VALUES(?,?,?,?,1,?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET input=CASE WHEN excluded.tokens>tokens THEN excluded.input ELSE input END,cached=CASE WHEN excluded.tokens>tokens THEN excluded.cached ELSE cached END,output=CASE WHEN excluded.tokens>tokens THEN excluded.output ELSE output END,tokens=MAX(tokens,excluded.tokens),at=MIN(at,excluded.at)",
+                        [.text("response|"+id),.text(turnKey),.real(date.timeIntervalSince1970),.integer(usage.total),.text(owner),.integer(usage.input),.integer(usage.cached),.integer(usage.output),.text(state.model ?? "")])
             preciseTurns.insert(turnKey);return
         }
         guard type == "event_msg",event == "token_count",let info = payload["info"] as? [String:Any],
@@ -150,12 +204,13 @@ final class DailyUsageIndex {
             try gap(key:key,turn:turnKey,date:date);return
         }
         let amount: Int64
+        let component: DailyCounts
         if let last {
             guard last.actual,last.total>0,delta.input>=last.input,delta.output>=last.output,delta.total>=last.total else { return }
-            amount = last.total
+            amount = last.total; component = last
             if delta.total != last.total { try gap(key:key+"|gap",turn:turnKey,date:date) }
-        } else { amount = delta.total }
-        try execute("INSERT OR IGNORE INTO events VALUES(?,?,?,?,0)", [.text(key),.text(turnKey),.real(date.timeIntervalSince1970),.integer(amount)])
+        } else { amount = delta.total; component = delta }
+        try execute("INSERT OR IGNORE INTO events(key,turn_key,at,tokens,precise,source_id,input,cached,output,model) VALUES(?,?,?,?,0,?,?,?,?,?)", [.text(key),.text(turnKey),.real(date.timeIntervalSince1970),.integer(amount),.text(source.id),.integer(component.input),.integer(component.cached),.integer(component.output),.text(state.model ?? "")])
     }
 
     private func gap(key: String, turn: String, date: Date) throws {
@@ -173,7 +228,18 @@ final class DailyUsageIndex {
                     "CREATE TABLE IF NOT EXISTS events(key TEXT PRIMARY KEY,turn_key TEXT,at REAL,tokens INTEGER,precise INTEGER)",
                     "CREATE INDEX IF NOT EXISTS events_day ON events(at)",
                     "CREATE INDEX IF NOT EXISTS events_turn ON events(turn_key,precise)",
-                    "CREATE TABLE IF NOT EXISTS gaps(key TEXT PRIMARY KEY,turn_key TEXT,at REAL)"] { try execute(sql) }
+                    "CREATE TABLE IF NOT EXISTS gaps(key TEXT PRIMARY KEY,turn_key TEXT,at REAL)",
+                    "CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY,project_id TEXT,name TEXT,model TEXT)"] { try execute(sql) }
+        let columns: [String] = try rows("PRAGMA table_info(events)") { string($0,1) }
+        if !columns.contains("source_id") {
+            // Rebuild the v1 index once so retained offsets cannot hide project attribution.
+            try execute("BEGIN IMMEDIATE")
+            do {
+                for column in ["source_id TEXT", "input INTEGER DEFAULT 0", "cached INTEGER DEFAULT 0", "output INTEGER DEFAULT 0", "model TEXT"] { try execute("ALTER TABLE events ADD COLUMN " + column) }
+                try execute("DELETE FROM events"); try execute("DELETE FROM files"); try execute("DELETE FROM gaps")
+                try execute("COMMIT")
+            } catch { try? execute("ROLLBACK");throw error }
+        }
     }
     private func prepare(_ sql: String, _ values: [DailyValue]) throws -> OpaquePointer {
         var s: OpaquePointer?
@@ -214,6 +280,7 @@ private struct DailyFileState: Codable {
     var discarding = false
     var previous: DailyCounts?
     var turnID: String?
+    var model: String?
     var damaged = false
 }
 private struct DailyCounts: Codable {
@@ -224,7 +291,7 @@ private struct DailyCounts: Codable {
     var total: Int64
     var actual: Bool {
         let sum = input.addingReportingOverflow(output)
-        return input>=0 && output>=0 && total>=0 && !sum.overflow && sum.partialValue == total
+        return input>=0 && output>=0 && total>=0 && cached>=0 && cached<=input && reasoning>=0 && reasoning<=output && !sum.overflow && sum.partialValue == total
     }
     init?(_ value: Any?) {
         guard let value = value as? [String:Any],let input = value["input_tokens"] as? NSNumber,

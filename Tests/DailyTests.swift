@@ -84,6 +84,27 @@ import Foundation
         var ny = Calendar(identifier:.gregorian);ny.timeZone = TimeZone(identifier:"America/New_York")!
         let dst = try index.refresh(sources:[],now:UsageDate.parse("2026-03-08T12:00:00-04:00")!,calendar:ny)
         check(dst.end.timeIntervalSince(dst.start) == 23*3600, "本地日期区间正确处理夏令时的23小时")
+        var owned = a; owned.id = "source-A"; owned.projectID = "api"; owned.projectName = "Atlas API"; owned.model = "model-A"
+        var copied = clone; copied.projectID = "web"; copied.projectName = "Atlas Web"; copied.model = "model-B"
+        let attributionIndex = DailyUsageIndex(cacheURL: root.appendingPathComponent("attribution.sqlite"))
+        let attributed = try attributionIndex.refresh(sources: [owned,copied], now:now, calendar:calendar)
+        check(attributed.projects.reduce(Int64(0)) { $0+$1.tokens } == attributed.tokens, "项目拆分总和与今日去重总量一致")
+        check(attributed.projects.first(where: { $0.id == "api" })?.tokens == attributed.tokens, "复制响应保留原项目归属，不计入复制项目或会话累计")
+        check(attributed.models.contains(where: { $0.id == "model-A" }), "按响应模型汇总今日用量")
+        check(attributed.history.contains(where: { $0.start == calendar.startOfDay(for:now) && $0.tokens == attributed.tokens }), "历史含已观察的今日数据")
+        let tomorrow = try attributionIndex.refresh(sources: [owned,copied], now:now.addingTimeInterval(86400), calendar:calendar)
+        check(tomorrow.history.contains(where: { $0.start == calendar.startOfDay(for:now) && $0.tokens == attributed.tokens }), "跨日保留已记录历史")
+        check(tomorrow.history.first(where: { $0.start == calendar.startOfDay(for:now) })?.partial == true, "历史不承诺完整采集，旧日期显示为已记录下限")
+        let renamedBytes = tomorrow.bytesRead
+        owned.projectName = "Renamed API"
+        let rename = try attributionIndex.refresh(sources:[owned,copied], now:now, calendar:calendar)
+        check(rename.projects.first(where: { $0.id == "api" })?.name == "Renamed API" && rename.bytesRead == renamedBytes, "项目更名无需重读日志")
+        check(rename.projects.allSatisfy { $0.input+$0.output == $0.tokens && $0.cached <= $0.input }, "输入输出组成总量，缓存是输入子集")
+        var orphan = try write("orphan.jsonl",record("orphan-response",total:120))
+        orphan.projectID = "clone-project";orphan.projectName = "Clone"
+        let orphanIndex = DailyUsageIndex(cacheURL:root.appendingPathComponent("orphan.sqlite"))
+        let orphanResult = try orphanIndex.refresh(sources:[orphan],now:now,calendar:calendar)
+        check(orphanResult.projects.first?.id == "__unassigned__", "复制记录声明原会话但原归属不可见时保留未归属，不归给复制项目")
         if failures > 0 { exit(1) }
         print("ALL DAILY TESTS PASSED")
     }
