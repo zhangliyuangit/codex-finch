@@ -4,6 +4,12 @@
 
 [English](README.md) · [下载](https://github.com/zhangliyuangit/codex-finch/releases) · [技术说明](docs/architecture.md)
 
+## 20 秒演示
+
+<p><img src="docs/images/demo.gif" width="840" alt="20 秒 Finch 演示：今日 token、按项目分组的会话，以及跳回 Codex 的示意"></p>
+
+动画使用 Finch 原生画面和虚构数据；最后的 Codex 跳转为示意，不展示真实会话内容。
+
 <p><img src="docs/images/dark.png" width="350" alt="深色面板，使用示例项目"> <img src="docs/images/light.png" width="350" alt="浅色面板，使用示例项目"></p>
 
 <p><img src="docs/images/statistics.png" width="350" alt="今日按项目统计，使用示例项目"></p>

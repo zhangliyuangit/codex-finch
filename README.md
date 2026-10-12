@@ -8,6 +8,12 @@ A lightweight macOS menu bar companion for Codex usage, sessions, and notificati
 
 Finch keeps useful Codex numbers close by: today's recorded local tokens, your latest account quota snapshot, and project-grouped sessions. Click a session to open its conversation in Codex.
 
+## 20-second demo
+
+<p><img src="docs/images/demo.gif" width="840" alt="20-second Finch demo showing today's tokens, project-grouped sessions and an illustrated handoff to Codex"></p>
+
+The animation uses native Finch captures and fictional data. The final Codex handoff is illustrated; no real conversations are shown.
+
 <p><img src="docs/images/dark.png" width="350" alt="Dark appearance with fictional sample projects"> <img src="docs/images/light.png" width="350" alt="Light appearance with fictional sample projects"></p>
 
 <p><img src="docs/images/statistics.png" width="350" alt="Project statistics with synthetic usage"></p>
