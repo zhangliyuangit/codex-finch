@@ -49,11 +49,11 @@ python3 scripts/make-demo.py /tmp/finch-demo
 
 ## Validation
 
-Version 0.6 verification, including live UI checks and remaining delivery limits, is recorded in [validation-0.6.md](validation-0.6.md).
+Current validation is recorded in [validation-0.6.1.md](validation-0.6.1.md), with startup, attribution, history and earlier live checks in [validation-0.6.md](validation-0.6.md).
 
-The five test suites cover parsing, deduplication, cumulative counter handling, project roots, file-driven updates, pause/resume, lifecycle matching, notification policy, archived/subagent daily coverage, restarts, file replacement, midnight, and DST. Version 0.5 has 102 passing assertions.
+The current seven suites pass 129 assertions, covering parsing, deduplication, cumulative counters, project roots, file-driven updates, pause/resume, lifecycle matching, notification policy, daily attribution and retention, restarts, file replacement, midnight, DST, startup migration, state filters and diagnostics. Version 0.5 had five suites and 102 passing assertions.
 
-Native views are rendered in both appearances with synthetic records. Builds and ad-hoc signatures are checked on macOS 26 / Apple Silicon. UUID links and the installed URL handler are verified; visible click-to-conversation, permission prompt, notification banner, and notification-click end-to-end checks remain unverified.
+Native views are rendered in both appearances with synthetic records. Builds and ad-hoc signatures are checked on macOS 26 / Apple Silicon. UUID links and the installed URL handler are verified; the user confirmed an actual conversation click opened the correct Codex chat. Native notification permission is authorized, but a visible banner and notification-click routing remain unverified. Builds are not notarized, and Intel distribution is untested.
 
 Historical collector measurements from version 0.4: about 0.8% of one CPU core over a 30-second live sample, RSS 37–51 MiB with the panel closed. A static fixture recorded one refresh over 40 seconds without repeated reads. These are local samples, not universal guarantees. Initial daily backfill can read hundreds of MiB; the persistent index makes subsequent same-day reads incremental. RSS is not total memory footprint.
 
