@@ -15,6 +15,7 @@ struct SessionRecord: Identifiable, Codable, Equatable {
     var projectName: String?
     var usage: TokenUsage?
     var activity: SessionActivity?
+    var performance: TurnPerformance?
     var tokens: Int64 { usage?.total ?? metadataTokens }
 }
 
@@ -159,6 +160,7 @@ final class UsageStore: ObservableObject {
                 totalBytes += reader.bytesRead - before
                 sessions[index].usage = reader.parser.latest
                 sessions[index].activity = reader.parser.activity
+                sessions[index].performance = reader.parser.performance
                 next.activityEvents += reader.parser.drainActivityEvents().map {
                     SessionSignal(sessionID: sessions[index].id, title: sessions[index].title,
                                   projectName: sessions[index].projectName, activity: $0)

@@ -35,6 +35,18 @@ import Foundation
         check(groups.first?.sessions.map(\.id) == ["d", "a"], "组内会话按最近更新时间排列")
         check(groups.first?.id == "main", "项目按最近活跃时间排列")
         check(groups.flatMap(\.sessions).count == 4, "分组不丢失或重复会话")
+        let initial = [session("a", "main", "sample-api", 100), session("b", "main", "sample-api", 90),
+                       session("c", "web", "sample-web", 80)]
+        let order = SessionListOrder(sessions: initial)
+        let fresh = [session("b", "web", "renamed", 1000), session("c", "web", "sample-web", 900),
+                     session("a", "main", "sample-api", 500), session("d", "main", "sample-api", 1100)]
+        let frozen = order.groups(from:fresh)
+        check(frozen.map(\.id) == ["main", "web"], "面板打开期间项目顺序不被并行更新改变")
+        check(frozen.first?.sessions.map(\.id) == ["a", "b"], "会话更新时间与归属变化不搬动原有行")
+        check(frozen.first?.sessions.last?.updatedAt == Date(timeIntervalSince1970:1000), "固定顺序仍展示最新会话字段")
+        check(frozen.flatMap(\.sessions).count == 3 && order.pendingCount(in:fresh) == 1, "新会话留到下次打开且明确计数")
+        check(SessionListOrder(sessions:fresh).groups(from:fresh).first?.sessions.first?.id == "d", "重新打开时重新计算最新排序")
+        check(order.groups(from:Array(fresh.dropFirst())).flatMap(\.sessions).map(\.id) == ["a", "c"], "已删除会话不保留可点击的陈旧行")
         if failures > 0 { exit(1) }
         print("ALL PROJECT TESTS PASSED")
     }

@@ -12,7 +12,7 @@ Finch keeps useful Codex numbers close by: today's recorded local tokens, your l
 
 <p><img src="docs/images/demo.gif" width="840" alt="20-second Finch demo showing today's tokens, project-grouped sessions and an illustrated handoff to Codex"></p>
 
-The animation uses native Finch captures and fictional data. The final Codex handoff is illustrated; no real conversations are shown.
+The animation shows version 0.6.1 using native Finch captures and fictional data. The final Codex handoff is illustrated; no real conversations are shown. Panel screenshots below reflect the current source.
 
 <p><img src="docs/images/dark.png" width="350" alt="Dark appearance with fictional sample projects"> <img src="docs/images/light.png" width="350" alt="Light appearance with fictional sample projects"></p>
 
@@ -24,6 +24,7 @@ Screenshots use synthetic projects and usage records. They are native view rende
 
 - Configurable menu bar: today's tokens, remaining quota, active sessions, or icon only.
 - Compact sessions grouped by project, with running/waiting filters and conversation links.
+- Per-conversation last-round first-token latency, duration and estimated average throughput. Rows stay in place while the panel is open, even during concurrent tasks.
 - Today’s tokens broken down by project and model, with 7/30-day observed local history.
 - System-backed launch-at-login toggle and configurable 24/50/100 recent main conversations.
 - Explicit GitHub release checks and sanitized diagnostics without conversation titles or paths.
@@ -50,6 +51,7 @@ Enabling notifications requests macOS permission. Test Notification checks deliv
 | --- | --- |
 | Today's tokens | Recorded usage on this Mac, from local midnight in the system timezone; includes archived sessions and subagents independently of the visible list. |
 | Session tokens | The latest recorded cumulative total for that conversation. |
+| Round metrics | First-token latency and duration reported by the latest completed local turn. Approximate throughput is that turn's recorded output tokens divided by its full duration, including tools, reasoning and waiting; it is not pure streaming decode speed. |
 | Remaining quota | An account-wide snapshot from Codex logs, with its observation and reset times. It updates when Codex writes a new record. |
 | Active sessions | Sessions with recent running evidence among the 24/50/100 monitored main conversations. |
 
@@ -58,6 +60,8 @@ Cached input is already included in input; reasoning output is already included 
 History retains up to 30 days of indexed records. First launch reads today’s relevant logs only; history accumulates with use, older days are explicitly lower bounds (≥), and absent days do not mean zero spend. Project ownership comes from current local metadata; unknown projects/models remain explicit. Daily project/model rows use deduplicated response amounts, never historical session totals.
 
 Local metadata and log formats are internal Codex implementation details and may change. Waiting detection covers explicit blocking-input/approval records; some approval paths are not present in logs. Running evidence older than ten minutes becomes unknown rather than being declared completed.
+
+Unavailable round fields show `—`. Running/waiting sessions retain the previous completed round's metrics, clearly labeled. New conversations appear when reopening the panel; a pending count is shown while it stays open. Existing rows continue updating in place. Round metrics cover the local main turn; they do not aggregate separate subagent sessions.
 
 ## Build and test
 

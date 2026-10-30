@@ -71,6 +71,30 @@ import SQLite3
         try lifecycle("task_complete",at:"2026-10-08T08:00:02Z")
         awaitCondition { store.snapshot.sessions.first?.activity?.phase == .completed }
         check(store.snapshot.activityEvents.first?.activity.phase == .completed, "采集器发布结束信号")
+        let performanceHandle = try FileHandle(forWritingTo: path)
+        try performanceHandle.seekToEnd()
+        let metrics: [[String: Any]] = [
+            ["type":"token_usage_record", "timestamp":"2026-10-08T08:00:01.900Z",
+             "payload":["turn_id":"A", "root_turn_id":"A", "response_id":"metric-response",
+                        "turn_token_usage":["output_tokens":420]]],
+            ["type":"event_msg", "timestamp":"2026-10-08T08:00:02Z",
+             "payload":["type":"task_complete", "turn_id":"A", "root_turn_id":"A",
+                        "duration_ms":26000, "time_to_first_token_ms":1800]]
+        ]
+        for object in metrics {
+            var data = try JSONSerialization.data(withJSONObject: object); data.append(10)
+            try performanceHandle.write(contentsOf:data)
+        }
+        try performanceHandle.close()
+        let performanceRefresh = store.snapshot.refreshCount
+        awaitCondition { store.snapshot.refreshCount > performanceRefresh }
+        let encoded = try JSONEncoder().encode(store.snapshot.sessions.first!)
+        let row = try JSONSerialization.jsonObject(with:encoded) as! [String:Any]
+        let performance = row["performance"] as? [String:Any]
+        check((performance?["outputTokens"] as? NSNumber)?.intValue == 420,
+              "文件监听发布同轮累计输出，供会话性能指标使用")
+        check((performance?["durationMilliseconds"] as? NSNumber)?.intValue == 26000,
+              "文件监听发布明确记录的整轮耗时")
         let eventCount = store.snapshot.refreshCount
         store.refresh()
         awaitCondition { store.snapshot.refreshCount > eventCount }

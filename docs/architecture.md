@@ -22,6 +22,10 @@ Version 0.6.1 presents today's total before compact account quota rows. The rece
 
 `Activity.swift` follows explicit lifecycle events and matching turns. Nonblocking `request_user_input_async` and queued user messages do not imply waiting/running. Stale running evidence becomes unknown after ten minutes.
 
+Version 0.7 removes the recently updated conversation card. Each conversation row shows first-token latency, full duration and estimated average output throughput for its last completed local main turn. `TurnPerformance.swift` joins `task_complete` metadata to the latest matching `token_usage_record.turn_token_usage` snapshot by local turn ID; child/root mismatches are ignored. Cumulative per-turn output is replaced, never summed or combined with reasoning a second time. Missing fields show `—`; zero duration cannot produce a rate. A new round starting preserves the separate last-completed result. This is full-round average throughput including tool execution and waiting, not streaming decode speed. No pure generation timing is inferred.
+
+The tracker retains at most 32 numeric turn records per reader and no message bodies. Unread gaps discard incomplete matching state while retaining an already completed display result. A fresh cumulative per-turn snapshot after a gap can establish a new numerator without a full scan. `SessionListOrder` freezes project membership and row order for the panel lifetime while reading current row values. New arrivals show a pending count and appear on reopening. Status filters remain live. The list expands active/waiting projects initially and has a bounded scroll viewport; no extra timers, network calls or background history reads are introduced.
+
 `NoticePolicy.swift` and `LocalNotifications.swift` handle native notifications. Cold startup silently seeds a baseline. Last 200 keys are retained; old completion/attention events over five minutes and quota snapshots over fifteen minutes cannot notify. Notification categories and sound are independently configurable. Clicks validate the session UUID before opening `codex://threads/<UUID>`.
 
 ## Login items and updates
@@ -51,10 +55,12 @@ python3 scripts/make-demo.py /tmp/finch-demo
 
 Current validation is recorded in [validation-0.6.1.md](validation-0.6.1.md), with startup, attribution, history and earlier live checks in [validation-0.6.md](validation-0.6.md).
 
-The current seven suites pass 129 assertions, covering parsing, deduplication, cumulative counters, project roots, file-driven updates, pause/resume, lifecycle matching, notification policy, daily attribution and retention, restarts, file replacement, midnight, DST, startup migration, state filters and diagnostics. Version 0.5 had five suites and 102 passing assertions.
+Version 0.7 has eight suites passing 167 assertions, covering parsing, deduplication, cumulative counters, project roots, file-driven updates, pause/resume, lifecycle matching, notification policy, daily attribution and retention, restarts, file replacement, midnight, DST, startup migration, state filters and diagnostics. Version 0.5 had five suites and 102 passing assertions.
 
 Native views are rendered in both appearances with synthetic records. Builds and ad-hoc signatures are checked on macOS 26 / Apple Silicon. UUID links and the installed URL handler are verified; the user confirmed an actual conversation click opened the correct Codex chat. Native notification permission is authorized, but a visible banner and notification-click routing remain unverified. Builds are not notarized, and Intel distribution is untested.
 
 Historical collector measurements from version 0.4: about 0.8% of one CPU core over a 30-second live sample, RSS 37–51 MiB with the panel closed. A static fixture recorded one refresh over 40 seconds without repeated reads. These are local samples, not universal guarantees. Initial daily backfill can read hundreds of MiB; the persistent index makes subsequent same-day reads incremental. RSS is not total memory footprint.
 
 Version 0.5 live app, panel closed: a 30.06-second sample used 0.17 CPU seconds (0.57% of one core), with RSS 31.4–32.8 MiB over seven samples. This measurement follows a warm-cache launch and does not include cold daily backfill or an open panel.
+
+Version 0.7 local validation is recorded in [validation-0.7.md](validation-0.7.md).
