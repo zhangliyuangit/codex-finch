@@ -60,6 +60,11 @@ final class UsageAccumulator {
     private(set) var latest: TokenUsage?
     private(set) var quota: QuotaSnapshot?
     private var activityTracker = ActivityTracker()
+    private var performanceTracker = TurnPerformanceTracker()
+    private let configurationTracker: SessionConfigurationTracker
+    init(sessionID: String? = nil) { configurationTracker = SessionConfigurationTracker(sessionID:sessionID) }
+    var configuration: SessionConfiguration? { configurationTracker.latest }
+    var performance: TurnPerformance? { performanceTracker.latest }
     var activity: SessionActivity? { activityTracker.latest }
     func drainActivityEvents() -> [SessionActivity] { activityTracker.drainEvents() }
     private var pending = Data()
@@ -67,13 +72,15 @@ final class UsageAccumulator {
     private let maximumLine = 2 * 1024 * 1024
     private static let eventTypes = ["token_count", "task_started", "turn_started", "task_complete", "turn_completed",
         "turn_aborted", "task_failed", "turn_failed", "request_user_input", "exec_approval_request", "apply_patch_approval_request",
-        "user_input_response", "exec_approval_response", "apply_patch_approval_response", "item_completed"].map { Data("\"\($0)\"".utf8) }
+        "user_input_response", "exec_approval_response", "apply_patch_approval_response", "item_completed", "thread_settings_applied"].map { Data("\"\($0)\"".utf8) }
     private static let itemType = try! NSRegularExpression(pattern: "\"item\"\\s*:\\s*\\{\\s*\"type\"\\s*:\\s*\"([^\"\\\\]+)\"")
 
     func skipUnreadGap() {
         pending.removeAll(keepingCapacity: false); discarding = false
         // Missing bytes may contain a terminal event. Keep usage, but discard activity evidence.
         activityTracker = ActivityTracker()
+        performanceTracker.skipUnreadGap()
+        configurationTracker.skipUnreadGap()
     }
 
     func append(_ data: Data) {
@@ -96,6 +103,8 @@ final class UsageAccumulator {
         if line.count > 2048 { markers.append(line.suffix(2048)) }
         let isEvent = markers.range(of: Data("\"event_msg\"".utf8)) != nil
         let isResponse = markers.range(of: Data("\"response_item\"".utf8)) != nil
+        let isTurnUsage = markers.range(of: Data("\"token_usage_record\"".utf8)) != nil
+        let isContext = markers.range(of: Data("\"turn_context\"".utf8)) != nil
         let usage = markers.range(of: Data("\"token_count\"".utf8)) != nil
         if isEvent {
             guard Self.eventTypes.contains(where: { markers.range(of: $0) != nil }) else { return }
@@ -103,7 +112,7 @@ final class UsageAccumulator {
             let blockingCall = markers.range(of: Data("\"function_call\"".utf8)) != nil && markers.range(of: Data("request_user_input".utf8)) != nil
             let waitingReply = activityTracker.latest?.phase == .waiting && markers.range(of: Data("\"function_call_output\"".utf8)) != nil
             guard blockingCall || waitingReply else { return }
-        } else { return }
+        } else if !isTurnUsage && !isContext { return }
         var parseData = line
         var compacted = false
         // Progress needs only its small event header; command stdout and message bodies
@@ -131,7 +140,14 @@ final class UsageAccumulator {
               let payload = object["payload"] as? [String: Any],
               let stamp = object["timestamp"] as? String,
               let date = UsageDate.parse(stamp) else { return }
-        activityTracker.consume(payload: payload, date: date, responseItem: object["type"] as? String == "response_item")
+        let recordType = object["type"] as? String ?? ""
+        configurationTracker.consume(recordType:recordType, payload:payload, date:date)
+        if recordType == "event_msg" || recordType == "token_usage_record" {
+            performanceTracker.consume(recordType: recordType, payload: payload, date: date)
+        }
+        if recordType == "event_msg" || recordType == "response_item" {
+            activityTracker.consume(payload: payload, date: date, responseItem: recordType == "response_item")
+        }
         guard object["type"] as? String == "event_msg", usage, payload["type"] as? String == "token_count" else { return }
         if let info = payload["info"] as? [String: Any],
            let total = info["total_token_usage"] as? [String: Any],
@@ -171,12 +187,16 @@ final class TailReader {
     static let initialLimit = 512 * 1024
     static let incrementalLimit = 1024 * 1024
     let path: String
-    private(set) var parser = UsageAccumulator()
+    private let sessionID: String?
+    private(set) var parser: UsageAccumulator
     private(set) var bytesRead = 0
     private var offset: UInt64 = 0
     private var inode: UInt64?
 
-    init(path: String) { self.path = path }
+    init(path: String, sessionID: String? = nil) {
+        self.path = path; self.sessionID = sessionID
+        self.parser = UsageAccumulator(sessionID:sessionID)
+    }
 
     func read() throws {
         let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
@@ -190,7 +210,7 @@ final class TailReader {
         let reset = inode == nil || inode != currentInode || size < offset
         var skipPartial = false
         if reset {
-            parser = UsageAccumulator()
+            parser = UsageAccumulator(sessionID:sessionID)
             offset = size > UInt64(Self.initialLimit) ? size - UInt64(Self.initialLimit) : 0
             skipPartial = offset > 0
         } else if size - offset > UInt64(Self.incrementalLimit) {

@@ -1,7 +1,7 @@
 #!/bin/zsh
 set -euo pipefail
 project_dir=${0:A:h:h}
-app_path="$project_dir/build/Codex Finch.app"
+app_path=${1:-"$project_dir/build/Codex Finch.app"}
 [[ -d "$app_path" ]] || { print -u2 'Run zsh build.sh first.'; exit 1; }
 version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_path/Contents/Info.plist")
 architecture=$(uname -m)

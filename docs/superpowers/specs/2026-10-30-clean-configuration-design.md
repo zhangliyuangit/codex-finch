@@ -1,0 +1,9 @@
+# Compact recorded-configuration design
+
+User approved the illustrated compact layout and explicitly requested local installation and GitHub release.
+
+The panel stays 380 pt wide. Daily tokens remain account-local daily totals. Account quota windows are side-by-side; snapshot/reset metadata remains available in help and accessibility text, and stale/expired evidence is not silently shown as current. One table header separates cumulative session tokens from the most recent completed main-turn first-token latency, full duration and approximate average throughput. Each session uses title/status, recorded configuration, and aligned numbers. Shared columns replace repeated inline labels. Grouping, filters, fixed order while open, pending-new-session indication and direct Codex links remain.
+
+Configuration consists of the last explicit local model, reasoning effort and service tier plus observation times. `priority`/`fast` mean a recorded Fast configuration, `default` means standard, and missing is unknown. Other explicit tiers keep their own labels. This does not claim a request was actually served on that tier. Full settings snapshots clear absent fields; an effort-only context must not manufacture a missing tier. Model/effort mismatches and unread gaps invalidate inherited tier evidence. Another thread's settings are ignored. Metadata fallback cannot set Fast. Older timestamps never overwrite newer evidence. No network requests, polling, credentials or conversation content are added to collection.
+
+Missing records show explicit unknown/dashes; no fabricated zeros or assumed defaults. Layout uses native controls and semantic appearance colors. Numeric values remain neutral. Release includes the previous local-only 0.7 changes, with fictional screenshots, exact merged source, an arm64 app ZIP and checksums. Bundle ID and startup preferences remain compatible.

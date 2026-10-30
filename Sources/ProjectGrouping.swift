@@ -65,3 +65,27 @@ struct SessionGroup: Identifiable {
         }
     }
 }
+
+/// A panel-lifetime projection: fresh values, stable group membership and row positions.
+struct SessionListOrder {
+    private let initialGroups: [SessionGroup]
+    private let sessionIDs: Set<String>
+
+    init(sessions: [SessionRecord]) {
+        initialGroups = SessionGroup.make(from:sessions)
+        sessionIDs = Set(sessions.map(\.id))
+    }
+
+    func groups(from sessions: [SessionRecord]) -> [SessionGroup] {
+        let current = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { _, fresh in fresh })
+        return initialGroups.compactMap { group in
+            let values = group.sessions.compactMap { current[$0.id] }
+            guard !values.isEmpty else { return nil }
+            return SessionGroup(id:group.id, name:group.name, sessions:values)
+        }
+    }
+
+    func pendingCount(in sessions: [SessionRecord]) -> Int {
+        Set(sessions.map(\.id)).subtracting(sessionIDs).count
+    }
+}

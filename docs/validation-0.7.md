@@ -1,0 +1,13 @@
+# 0.7 local validation
+
+Validated on 2026-10-30, Apple Silicon / macOS 26. This is a locally installed development build, not a published GitHub release.
+
+- `zsh test.sh`: all eight suites passed, 167 assertions, no failures. The Store integration first failed on absent performance data and passed after collection was added. Stable-order tests cover concurrent timestamp changes, project reassignment, new arrivals and reopening. Performance cases include duplicate cumulative snapshots, interleaved/root-mismatched turns, out-of-order lifecycle records, missing/invalid/zero values and unread gaps.
+- `zsh build.sh <staging.noindex>` completed, and `codesign --verify --deep --strict` passed. Version 0.7.0/build 8 preserves bundle ID `local.codexusage.menu`.
+- Native SwiftUI renders checked in dark, light and missing-data states. The list directly shows three metrics per conversation, identifies previous-round data and keeps the normal Codex link callback. No clipping was observed in these synthetic samples. README panel screenshots were refreshed; the 20-second demo remains the earlier 0.6.1 recording.
+- A bounded real-log snapshot of 24 monitored sessions exposed complete reported duration/first-token/per-turn output metadata for 21 sessions, with no metadata/daily-index errors. This sample does not promise coverage of every conversation or older Codex versions. Missing tail records remain unavailable rather than triggering a full-history scan.
+- Static six-conversation fixture, warm daily cache, panel closed: 16.10 seconds elapsed, 0.133 CPU seconds (0.83% of one core), peak RSS 34.44 MiB. One collector refresh read 10,135 rollout bytes. This includes process startup, is not a before/after benchmark and does not measure active workloads, cold backfill or an open panel. No timers/polling/network requests were added by this feature.
+- Previous installed 0.6.1/build 7 was ZIP-archived and verified byte-for-byte before replacement. Installed binary matches the tested build and passed signature verification. Login-item state was `enabled` before and after replacement. One no-argument installed process was observed after normal startup.
+- Computer-use app lookup timed out, so no new live UI click validation is claimed. The existing deep-link handler is unchanged; UUID validation remains tested, and the user previously confirmed correct real-conversation routing. Native render verification and runtime/process checks are separate evidence.
+
+The app remains ad-hoc signed and unnotarized; Intel distribution is not verified. No new notification tests or system-notification changes were performed.

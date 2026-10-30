@@ -32,6 +32,13 @@ import SQLite3
         }
         try fixture(100).write(to: path)
         let id = "00000000-0000-4000-8000-000000000001"
+        let initialSettings:[String:Any] = ["type":"event_msg", "timestamp":"2026-10-08T08:00:00Z",
+            "payload":["type":"thread_settings_applied", "thread_id":id,
+                       "thread_settings":["model":"test-model", "reasoning_effort":"high", "service_tier":"priority"]]]
+        let settingsHandle = try FileHandle(forWritingTo:path)
+        try settingsHandle.seekToEnd()
+        var settingsBytes = try JSONSerialization.data(withJSONObject:initialSettings); settingsBytes.append(10)
+        try settingsHandle.write(contentsOf:settingsBytes);try settingsHandle.close()
         sql("INSERT INTO threads VALUES('\(id)','原始标题','显示名称','\(path.path)',1791446400,'test-model',100,0,NULL,'user',NULL,'/repos/sample-api/src')")
         sql("INSERT INTO threads VALUES('\(UUID().uuidString)','子智能体',NULL,'\(path.path)',1791446401,'test-model',999,0,'/agent','subagent',NULL,'/repos/sample-api')")
         sql("INSERT INTO threads VALUES('\(UUID().uuidString)','已归档',NULL,'\(path.path)',1791446402,'test-model',999,1,NULL,'user',NULL,'/repos/sample-api')")
@@ -50,6 +57,10 @@ import SQLite3
         check(store.snapshot.sessions.first?.title == "显示名称", "优先使用用户可见会话名")
         check(store.snapshot.sessions.first?.tokens == 100, "读取真实 fixture usage")
         check(store.snapshot.sessions.first?.projectName == "sample-api", "读取真实项目根目录并匹配子目录")
+        let configurationRow = try JSONSerialization.jsonObject(with:JSONEncoder().encode(store.snapshot.sessions.first!)) as! [String:Any]
+        let recorded = configurationRow["configuration"] as? [String:Any]
+        check(recorded?["serviceTier"] as? String == "priority", "会话明确记录的 Fast 配置经采集器发布")
+        check(recorded?["effort"] as? String == "high", "会话思考程度经采集器发布")
         let initialBytes = store.snapshot.bytesRead
         store.refresh()
         awaitCondition { store.snapshot.refreshCount >= 2 }
@@ -71,6 +82,30 @@ import SQLite3
         try lifecycle("task_complete",at:"2026-10-08T08:00:02Z")
         awaitCondition { store.snapshot.sessions.first?.activity?.phase == .completed }
         check(store.snapshot.activityEvents.first?.activity.phase == .completed, "采集器发布结束信号")
+        let performanceHandle = try FileHandle(forWritingTo: path)
+        try performanceHandle.seekToEnd()
+        let metrics: [[String: Any]] = [
+            ["type":"token_usage_record", "timestamp":"2026-10-08T08:00:01.900Z",
+             "payload":["turn_id":"A", "root_turn_id":"A", "response_id":"metric-response",
+                        "turn_token_usage":["output_tokens":420]]],
+            ["type":"event_msg", "timestamp":"2026-10-08T08:00:02Z",
+             "payload":["type":"task_complete", "turn_id":"A", "root_turn_id":"A",
+                        "duration_ms":26000, "time_to_first_token_ms":1800]]
+        ]
+        for object in metrics {
+            var data = try JSONSerialization.data(withJSONObject: object); data.append(10)
+            try performanceHandle.write(contentsOf:data)
+        }
+        try performanceHandle.close()
+        let performanceRefresh = store.snapshot.refreshCount
+        awaitCondition { store.snapshot.refreshCount > performanceRefresh }
+        let encoded = try JSONEncoder().encode(store.snapshot.sessions.first!)
+        let row = try JSONSerialization.jsonObject(with:encoded) as! [String:Any]
+        let performance = row["performance"] as? [String:Any]
+        check((performance?["outputTokens"] as? NSNumber)?.intValue == 420,
+              "文件监听发布同轮累计输出，供会话性能指标使用")
+        check((performance?["durationMilliseconds"] as? NSNumber)?.intValue == 26000,
+              "文件监听发布明确记录的整轮耗时")
         let eventCount = store.snapshot.refreshCount
         store.refresh()
         awaitCondition { store.snapshot.refreshCount > eventCount }
@@ -116,6 +151,11 @@ import SQLite3
         let dailyCount = store.snapshot.refreshCount
         store.refresh();awaitCondition { store.snapshot.refreshCount > dailyCount }
         check(store.snapshot.daily?.bytesRead == dailyBefore, "今日索引无变动时不重扫历史")
+        sql("ALTER TABLE threads ADD COLUMN reasoning_effort TEXT")
+        sql("UPDATE threads SET reasoning_effort='xhigh'")
+        awaitCondition { store.snapshot.sessions.first?.metadataEffort == "xhigh" }
+        check(store.snapshot.sessions.first?.recordedConfiguration.effortLabel == "超高", "新数据库可读取思考元数据，旧数据库列缺失仍兼容")
+        check(store.snapshot.sessions.first?.recordedConfiguration.serviceTier == nil, "只有元数据时模式保持未知，不套用其他会话 Fast")
         store.stopMonitoring()
         RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         check(version() == dataVersion, "采集器未写入 Codex 元数据")
