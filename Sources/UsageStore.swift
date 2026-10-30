@@ -16,6 +16,11 @@ struct SessionRecord: Identifiable, Codable, Equatable {
     var usage: TokenUsage?
     var activity: SessionActivity?
     var performance: TurnPerformance?
+    var configuration: SessionConfiguration?
+    var metadataEffort: String?
+    var recordedConfiguration: SessionConfiguration {
+        (configuration ?? SessionConfiguration()).resolving(metadataModel:model, metadataEffort:metadataEffort)
+    }
     var tokens: Int64 { usage?.total ?? metadataTokens }
 }
 
@@ -153,7 +158,7 @@ final class UsageStore: ObservableObject {
             readers = readers.filter { paths.contains($0.key) }
             for index in sessions.indices {
                 let path = sessions[index].path
-                let reader = readers[path] ?? TailReader(path: path)
+                let reader = readers[path] ?? TailReader(path: path, sessionID:sessions[index].id)
                 readers[path] = reader
                 let before = reader.bytesRead
                 try? reader.read()
@@ -161,6 +166,7 @@ final class UsageStore: ObservableObject {
                 sessions[index].usage = reader.parser.latest
                 sessions[index].activity = reader.parser.activity
                 sessions[index].performance = reader.parser.performance
+                sessions[index].configuration = reader.parser.configuration
                 next.activityEvents += reader.parser.drainActivityEvents().map {
                     SessionSignal(sessionID: sessions[index].id, title: sessions[index].title,
                                   projectName: sessions[index].projectName, activity: $0)
@@ -212,9 +218,18 @@ final class UsageStore: ObservableObject {
         defer { sqlite3_close(db) }
         sqlite3_busy_timeout(db, 150)
         let catalog = queryProjects(db: db)
+        var columns: OpaquePointer?
+        var hasEffort = false
+        if sqlite3_prepare_v2(db,"PRAGMA table_info(threads)",-1,&columns,nil) == SQLITE_OK {
+            while sqlite3_step(columns) == SQLITE_ROW {
+                if sqlite3_column_text(columns,1).map({ String(cString:$0) }) == "reasoning_effort" { hasEffort = true }
+            }
+        }
+        sqlite3_finalize(columns)
+        let effortColumn = hasEffort ? "COALESCE(reasoning_effort,'')" : "''"
         let sql = """
             SELECT id, COALESCE(NULLIF(name,''),title), rollout_path, updated_at,
-                   COALESCE(model,''), tokens_used, project_id, cwd
+                   COALESCE(model,''), tokens_used, project_id, cwd, \(effortColumn)
             FROM threads
             WHERE archived=0 AND agent_path IS NULL
                   AND (thread_source IS NULL OR thread_source='user')
@@ -239,7 +254,8 @@ final class UsageStore: ObservableObject {
                 result.append(SessionRecord(id: id, title: title.isEmpty ? "未命名会话" : title,
                                             path: string(2), updatedAt: Date(timeIntervalSince1970: Double(sqlite3_column_int64(statement, 3))),
                                             model: string(4), metadataTokens: sqlite3_column_int64(statement, 5),
-                                            projectID: project?.id, projectName: project?.name))
+                                            projectID: project?.id, projectName: project?.name,
+                                            metadataEffort:SessionConfiguration.value(string(8))))
             }
             status = sqlite3_step(statement)
         }

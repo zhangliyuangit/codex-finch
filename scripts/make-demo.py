@@ -16,7 +16,7 @@ def stamp(offset=0):
     return (now + dt.timedelta(seconds=offset)).isoformat().replace("+00:00", "Z")
 db = sqlite3.connect(db_path)
 db.executescript("""
-CREATE TABLE threads(id TEXT,title TEXT,name TEXT,rollout_path TEXT,updated_at INTEGER,model TEXT,tokens_used INTEGER,archived INTEGER,agent_path TEXT,thread_source TEXT,project_id TEXT,cwd TEXT);
+CREATE TABLE threads(id TEXT,title TEXT,name TEXT,rollout_path TEXT,updated_at INTEGER,model TEXT,tokens_used INTEGER,archived INTEGER,agent_path TEXT,thread_source TEXT,project_id TEXT,cwd TEXT,reasoning_effort TEXT);
 CREATE TABLE projects(id TEXT,name TEXT,position INTEGER);
 CREATE TABLE project_roots(project_id TEXT,path TEXT,position INTEGER);
 INSERT INTO projects VALUES('api','Atlas API',0),('web','Web Console',1);
@@ -54,6 +54,15 @@ for i, (project, title, total, phase) in enumerate(items):
                         payload=dict(type="task_complete",turn_id=previous,root_turn_id=previous,
                                      duration_ms=duration,time_to_first_token_ms=first))]
     records = performance + records
+    effort = ["high", "medium", "xhigh"][i % 3]
+    config = dict(model="demo-model",reasoning_effort=effort)
+    if i % 3 != 2:
+        config["service_tier"] = "priority" if i % 3 == 0 else "default"
+    # A selected running conversation demonstrates unknown mode explicitly.
+    if i == 3:
+        config.pop("service_tier", None)
+    records.insert(0,dict(type="event_msg",timestamp=stamp(-220),
+                         payload=dict(type="thread_settings_applied",thread_id=session_id,thread_settings=config)))
     if phase == "waiting":
         records.append(dict(type="event_msg", timestamp=stamp(-30), payload=dict(type="request_user_input", turn_id=turn, id="demo-question")))
     elif phase == "completed":
@@ -68,7 +77,7 @@ for i, (project, title, total, phase) in enumerate(items):
     log = root / f"demo-{i}.jsonl"
     log.write_text("".join(json.dumps(r)+"\n" for r in records))
     cwd = "/demo/atlas" if project == "api" else "/demo/web" if project else "/demo/unassigned"
-    db.execute("INSERT INTO threads VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", (session_id,title,None,str(log),int(now.timestamp())-i,"demo-model",total,0,None,"user",project,cwd))
+    db.execute("INSERT INTO threads VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (session_id,title,None,str(log),int(now.timestamp())-i,"demo-model",total,0,None,"user",project,cwd,effort))
 db.commit()
 db.close()
 print(root)

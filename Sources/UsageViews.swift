@@ -88,7 +88,7 @@ struct UsagePanel: View {
             HStack {
                 Text("项目会话").font(.system(size: 12, weight: .semibold))
                 Spacer()
-                Text("token 为会话累计").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("配置按本地记录").font(.system(size: 11)).foregroundStyle(.secondary)
             }.padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 10)
             if store.snapshot.sessions.isEmpty {
                 VStack(spacing: 10) {
@@ -133,22 +133,17 @@ struct UsagePanel: View {
     }
 
     @ViewBuilder private var quotaBlock: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("账号剩余额度").font(.system(size: 11, weight: .medium))
-                Spacer()
-                if let quota = store.snapshot.quota {
-                    let stale = Date().timeIntervalSince(quota.timestamp) > 900
-                    Text("快照 \(UsageFormat.time(quota.timestamp))")
-                        .font(.system(size: 10)).foregroundStyle(stale ? finchWarning : Color.secondary)
-                }
-            }
+        VStack(alignment: .leading, spacing: 8) {
             if let quota = store.snapshot.quota, let window = quota.displayWindow {
-                quotaRow(window)
-                if let other = otherWindow(quota, window) { quotaRow(other) }
+                HStack(alignment: .top, spacing: 20) {
+                    quotaRow(window, snapshot:quota.timestamp)
+                    if let other = quota.primary == window ? quota.secondary : quota.primary {
+                        quotaRow(other, snapshot:quota.timestamp)
+                    }
+                }
                 if Date().timeIntervalSince(quota.timestamp) > 900 {
-                    Text("等待 Codex 更新额度快照")
-                        .font(.system(size: 10.5)).foregroundStyle(finchWarning)
+                    Text("额度快照 \(UsageFormat.time(quota.timestamp)) · 等待更新")
+                        .font(.system(size: 11)).foregroundStyle(finchWarning)
                 }
             } else {
                 Text("等待 Codex 记录额度快照")
@@ -156,37 +151,33 @@ struct UsagePanel: View {
             }
         }.padding(.top, 12)
             .overlay(alignment: .top) { Divider().opacity(0.5) }
-            .help("账号额度来自最近一次本地用量记录，多个会话共用。Finch 不会主动请求服务器。")
+            .help("账号共享额度来自本地记录；悬停每个窗口查看快照与重置时间。Finch 不会主动请求服务器。")
     }
 
-    private func quotaRow(_ window: QuotaWindow) -> some View {
+    private func quotaRow(_ window: QuotaWindow, snapshot: Date) -> some View {
         let expired = window.resetsAt.map { $0 <= Date() } ?? false
         let color = window.remaining <= 15 ? finchWarning : finchAccent
-        return VStack(alignment: .leading, spacing: 5) {
+        let title = window.minutes == 10080 ? "每周剩余" : window.minutes == 300 ? "5 小时剩余" : window.title
+        let status = expired ? "等待新快照" : UsageFormat.percent(window.remaining)
+        return VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(window.title).font(.system(size: 11)).foregroundStyle(.secondary)
-                Text(expired ? "—" : UsageFormat.percent(window.remaining))
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    .monospacedDigit().foregroundStyle(expired ? Color.secondary : window.remaining <= 15 ? finchWarning : Color.primary)
+                Text(title).font(.system(size: 11)).foregroundStyle(.secondary)
                 Spacer(minLength: 4)
-                Text(expired ? "等待新快照" : UsageFormat.reset(window.resetsAt))
-                    .font(.system(size: 10)).foregroundStyle(expired ? finchWarning : Color.secondary)
-                    .lineLimit(1)
+                Text(expired ? "—" : UsageFormat.percent(window.remaining))
+                    .font(.system(size: 14, weight: .semibold, design: .rounded)).monospacedDigit()
+                    .foregroundStyle(expired || window.remaining <= 15 ? finchWarning : Color.primary)
             }
             GeometryReader { geo in
                 Capsule().fill(Color.primary.opacity(0.08)).overlay(alignment: .leading) {
                     if !expired {
-                        Capsule().fill(color).frame(width: geo.size.width * max(0, min(100, window.remaining)) / 100)
+                        Capsule().fill(color).frame(width:geo.size.width * max(0,min(100,window.remaining))/100)
                     }
                 }
-            }.frame(height: 3)
-        }.accessibilityElement(children: .combine)
-    }
-
-    private func otherWindow(_ quota: QuotaSnapshot, _ primary: QuotaWindow) -> QuotaWindow? {
-        let other = quota.primary == primary ? quota.secondary : quota.primary
-        guard let other, other.resetsAt.map({ $0 > Date() }) ?? true else { return nil }
-        return other
+            }.frame(height:3)
+        }.frame(maxWidth:.infinity)
+            .help("\(window.title)：\(status)；快照 \(UsageFormat.time(snapshot))；\(UsageFormat.reset(window.resetsAt))。")
+            .accessibilityElement(children:.ignore)
+            .accessibilityLabel("\(window.title)，\(status)，快照 \(UsageFormat.time(snapshot))，\(UsageFormat.reset(window.resetsAt))")
     }
 
     private var loginBinding: Binding<Bool> {
@@ -288,7 +279,8 @@ struct UsagePanel: View {
                     .font(.system(size:10)).foregroundStyle(.secondary)
             }
             HStack {
-                Text("Codex Finch 0.6.1 · 本地记录").font(.system(size: 10.5)).foregroundStyle(.secondary)
+                Text("Codex Finch \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "开发版") · 本地记录")
+                    .font(.system(size: 10.5)).foregroundStyle(.secondary)
                 Spacer()
                 Button("退出", action: quit).buttonStyle(.borderless).font(.system(size: 11))
             }.padding(.top, 10)
@@ -350,6 +342,11 @@ private struct ProjectSessionList: View {
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity).padding(.vertical, 24)
             }
+            VStack(alignment:.trailing,spacing:5) {
+                Text("最近完成一轮").font(.system(size:11)).foregroundStyle(.secondary)
+                SessionNumberColumns(values:["累计 token","首 token","整轮耗时","平均吞吐"], heading:true)
+            }.padding(.leading,40).padding(.trailing,20).padding(.bottom,8)
+                .overlay(alignment:.bottom) { Divider().padding(.leading,40).padding(.trailing,20) }
             ScrollView {
                 LazyVStack(spacing: 4) {
                     ForEach(groups) { group in
@@ -365,14 +362,6 @@ private struct ProjectSessionList: View {
                                 Text(group.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
                                 Text("\(group.sessions.count)")
                                     .font(.system(size: 10)).foregroundStyle(.secondary).monospacedDigit()
-                                let active = group.sessions.filter { $0.activity?.effectivePhase(at: Date()) == .running }.count
-                                let waiting = group.sessions.filter { $0.activity?.phase == .waiting }.count
-                                if active > 0 {
-                                    Text("\(active) 处理中").font(.system(size: 10)).foregroundStyle(finchAccent)
-                                }
-                                if waiting > 0 {
-                                    Text("\(waiting) 待确认").font(.system(size: 10)).foregroundStyle(finchWarning)
-                                }
                                 Spacer(minLength: 8)
                                 Image(systemName: expanded ? "chevron.down" : "chevron.right")
                                     .font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
@@ -406,18 +395,17 @@ private struct ProjectSessionList: View {
                         }
                     }
                 }
-            }.scrollIndicators(.visible).frame(height: min(352, listHeight))
-            HStack {
-                Text("\(groups.filter { !$0.isUnassigned }.count) 个项目 · \(filtered.count) 个会话")
-                Spacer()
-                let pending = order?.pendingCount(in:sessions) ?? 0
-                Text(pending > 0 ? "\(pending) 个新会话 · 重开查看" : "打开期间保持顺序")
-                    .help("面板打开期间不因并行任务更新而重新排序；重新打开后显示最新顺序与新会话。筛选仍按当前状态更新。")
-            }.font(.system(size: 11)).foregroundStyle(.secondary)
-                .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 12)
-            Label("指标按最近完成一轮计算；均速含工具与等待。", systemImage:"info.circle")
+            }.scrollIndicators(.visible).frame(height: min(366, listHeight))
+            let pending = order?.pendingCount(in:sessions) ?? 0
+            if pending > 0 {
+                Text("\(pending) 个新会话 · 重开面板查看")
+                    .font(.system(size:11)).foregroundStyle(.secondary)
+                    .padding(.horizontal,20).padding(.top,8)
+            }
+            Label("配置看记录，性能看上一轮", systemImage:"info.circle")
                 .font(.system(size:11)).foregroundStyle(.secondary)
-                .padding(.horizontal,20).padding(.bottom,12)
+                .padding(.horizontal,20).padding(.vertical,10)
+                .help("模型、思考和模式来自本地记录，可能滞后于界面变化。后三列是最近完成一轮；均速含推理、工具与等待，不是纯生成速度。面板打开期间保持顺序，新会话重开后显示。")
         }.onAppear {
             if !initialized {
                 order = SessionListOrder(sessions:sessions)
@@ -436,8 +424,25 @@ private struct ProjectSessionList: View {
         groups.reduce(CGFloat(0)) { height, group in
             guard expandedProjects.contains(group.id) else { return height + 34 }
             let rows = allSessionsProjects.contains(group.id) ? group.sessions.count : min(2, group.sessions.count)
-            return height + 34 + CGFloat(rows) * 78 + (group.sessions.count > 2 ? 26 : 0)
+            return height + 34 + CGFloat(rows) * 88 + (group.sessions.count > 2 ? 26 : 0)
         }
+    }
+}
+
+private struct SessionNumberColumns: View {
+    let values: [String]
+    var heading = false
+    var body: some View {
+        HStack(spacing:4) {
+            cell(0).frame(width:72,alignment:.leading)
+            cell(1).frame(width:66,alignment:.leading)
+            cell(2).frame(width:68,alignment:.leading)
+            cell(3).frame(maxWidth:.infinity,alignment:.trailing)
+        }.font(.system(size:heading ? 11 : 12)).monospacedDigit()
+    }
+    private func cell(_ index: Int) -> some View {
+        Text(values[index]).lineLimit(1).minimumScaleFactor(0.8)
+            .foregroundStyle(heading || index == 0 ? Color.secondary : Color.primary)
     }
 }
 
@@ -445,56 +450,45 @@ private struct SessionRow: View {
     let session: SessionRecord
     var action: () -> Void
     @State private var hovering = false
-    private var performanceScope: String {
-        guard let performance = session.performance else { return "暂无完成记录" }
-        return session.activity?.turnID.map({ $0 != performance.turnID }) == true ? "上一轮" : "最近一轮"
-    }
+    private var config: SessionConfiguration { session.recordedConfiguration }
     private var details: String {
-        var lines = [session.title, "更新于 \(UsageFormat.time(session.updatedAt)) · 在 Codex 中打开"]
+        var lines = [session.title,config.help,"更新于 \(UsageFormat.time(session.updatedAt)) · 在 Codex 中打开"]
         if let usage = session.usage {
-            lines.append("会话累计：输入 \(UsageFormat.tokens(usage.input)) · 输出 \(UsageFormat.tokens(usage.output)) · 输入缓存 \(UsageFormat.percent(usage.cacheRatio * 100))；缓存已包含在输入中。")
+            lines.append("会话累计：输入 \(UsageFormat.tokens(usage.input)) · 输出 \(UsageFormat.tokens(usage.output)) · 输入缓存 \(UsageFormat.percent(usage.cacheRatio * 100))；缓存已含在输入中。")
         }
-        lines.append(session.performance?.help ?? "尚无可用的完成轮次耗时记录；缺失值不表示零延迟或零速度。")
+        lines.append(session.performance?.help ?? "暂无完整的完成轮次记录；缺失值不表示零延迟或零速度。")
         return lines.joined(separator:"\n")
     }
     var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
-                    Text(session.title).font(.system(size: 12, weight: .medium))
+        Button(action:action) {
+            VStack(alignment:.leading,spacing:5) {
+                HStack(spacing:8) {
+                    Text(session.title).font(.system(size:12,weight:.medium))
                         .lineLimit(1).truncationMode(.tail)
-                    Spacer(minLength: 6)
-                    Text(UsageFormat.tokens(session.tokens))
-                        .font(.system(size: 12, weight: .medium, design: .rounded)).monospacedDigit().fixedSize()
-                    Image(systemName:"arrow.up.right").font(.system(size:9,weight:.medium))
-                        .foregroundStyle(hovering ? finchAccent : Color.secondary.opacity(0.6))
-                }
-                HStack(spacing: 6) {
+                    Spacer(minLength:6)
                     ActivityBadge(activity:session.activity)
-                    Text(session.model.isEmpty ? "Codex" : session.model).lineLimit(1).foregroundStyle(.secondary)
-                    Spacer(minLength:4)
-                    Text(performanceScope).foregroundStyle(.secondary).fixedSize()
-                }.font(.system(size:11))
-                HStack(spacing: 8) {
-                    metric("首 token", session.performance?.firstTokenLabel ?? "—")
-                    Spacer(minLength:0)
-                    metric("耗时", session.performance?.durationLabel ?? "—")
-                    Spacer(minLength:0)
-                    metric("均速", session.performance?.throughputLabel ?? "—")
-                }.padding(.top,2).font(.system(size:11)).monospacedDigit()
-            }.padding(.leading, 40).padding(.trailing, 20).frame(height: 77.5)
+                }
+                HStack(spacing:6) {
+                    Text(config.model ?? "模型未知").lineLimit(1).truncationMode(.middle)
+                    separator
+                    Text("思考 \(config.effortLabel)").fixedSize()
+                    separator
+                    HStack(spacing:3) {
+                        if config.isFast { Image(systemName:"bolt").font(.system(size:9)) }
+                        Text(config.modeLabel).lineLimit(1).truncationMode(.tail)
+                    }.frame(maxWidth:84,alignment:.leading)
+                }.font(.system(size:11)).foregroundStyle(.secondary)
+                SessionNumberColumns(values:[UsageFormat.tokens(session.tokens),
+                    session.performance?.firstTokenLabel ?? "—",session.performance?.durationLabel ?? "—",
+                    session.performance?.throughputLabel ?? "—"])
+                    .padding(.top,5)
+            }.padding(.leading,40).padding(.trailing,20).frame(height:87.5)
                 .contentShape(Rectangle())
                 .background(hovering ? Color.primary.opacity(0.045) : Color.clear)
-        }.buttonStyle(.plain).onHover { hovering = $0 }
-            .help(details)
-            .accessibilityLabel("打开会话 \(session.title)，累计 \(session.tokens) token，\(session.activity?.label(at:Date()) ?? "状态未知")，\(performanceScope)，首 token \(session.performance?.firstTokenLabel ?? "—")，整轮耗时 \(session.performance?.durationLabel ?? "—")，平均吞吐 \(session.performance?.throughputLabel ?? "—")")
+        }.buttonStyle(.plain).onHover { hovering = $0 }.help(details)
+            .accessibilityLabel("打开会话 \(session.title)，\(session.activity?.label(at:Date()) ?? "状态未知")，\(config.summary)，累计 \(session.tokens) token，首 token \(session.performance?.firstTokenLabel ?? "—")，整轮耗时 \(session.performance?.durationLabel ?? "—")，平均吞吐 \(session.performance?.throughputLabel ?? "—")")
     }
-    private func metric(_ name: String, _ value: String) -> some View {
-        HStack(spacing:4) {
-            Text(name).foregroundStyle(.secondary)
-            Text(value).foregroundStyle(.primary).fixedSize()
-        }.fixedSize()
-    }
+    private var separator: some View { Rectangle().fill(Color.primary.opacity(0.12)).frame(width:1,height:9) }
 }
 
 private struct ActivityBadge: View {

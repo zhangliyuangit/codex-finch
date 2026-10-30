@@ -28,6 +28,14 @@ The tracker retains at most 32 numeric turn records per reader and no message bo
 
 `NoticePolicy.swift` and `LocalNotifications.swift` handle native notifications. Cold startup silently seeds a baseline. Last 200 keys are retained; old completion/attention events over five minutes and quota snapshots over fifteen minutes cannot notify. Notification categories and sound are independently configurable. Clicks validate the session UUID before opening `codex://threads/<UUID>`.
 
+## Recorded configuration (0.8)
+
+`SessionConfiguration.swift` consumes explicit `thread_settings_applied.thread_settings` snapshots and `turn_context` model/effort evidence. Settings events must match the expected session ID supplied through `TailReader`; foreign-thread snapshots cannot set Fast. Full snapshots clear omitted/null fields. Context model/effort changes, explicit resets and skipped gaps invalidate inherited tier evidence. The tracker preserves the service-tier observation time separately from newer context timestamps. Metadata model/effort conflicts also invalidate inherited mode evidence when the view resolves its recorded configuration.
+
+`priority` and `fast` mean a recorded Fast configuration; `default`, `flex`, `auto` and `ultrafast` retain distinct labels. Missing evidence is explicitly unknown. A configured tier is not proof of the actual response serving tier. The bounded tail is not expanded to recover old settings: no full scan or global-config inference is introduced. `reasoning_effort` is read from the local SQLite metadata only if the schema exposes it; older schemas still work. No settings, messages or credentials are written back to Codex.
+
+The panel uses one fixed-column layout for cumulative tokens and last-completed-round metrics. Title/status and muted recorded model/effort/mode precede each row's values. Quota windows sit side-by-side with reset/snapshot metadata in help and accessibility labels; stale snapshots and expired windows keep visible unknown/stale states. Native controls, semantic colors, direct session links and frozen ordering are retained.
+
 ## Login items and updates
 
 `LoginItemController` reads and changes `SMAppService.mainApp`. New installs are off by default. An existing owned legacy agent is migrated only after native registration becomes enabled, with an Application Support backup. The old job is disabled without killing the current app. Unrelated labels, executables, or arguments are never removed. Approval-pending state is shown distinctly, and activation refreshes status.
@@ -53,9 +61,9 @@ python3 scripts/make-demo.py /tmp/finch-demo
 
 ## Validation
 
-Current validation is recorded in [validation-0.6.1.md](validation-0.6.1.md), with startup, attribution, history and earlier live checks in [validation-0.6.md](validation-0.6.md).
+Current validation is recorded in [validation-0.8.md](validation-0.8.md), with startup, attribution, history and earlier live checks in [validation-0.6.md](validation-0.6.md).
 
-Version 0.7 has eight suites passing 167 assertions, covering parsing, deduplication, cumulative counters, project roots, file-driven updates, pause/resume, lifecycle matching, notification policy, daily attribution and retention, restarts, file replacement, midnight, DST, startup migration, state filters and diagnostics. Version 0.5 had five suites and 102 passing assertions.
+Version 0.8 has nine suites passing 205 assertions, covering parsing, deduplication, cumulative counters, project roots, file-driven updates, pause/resume, lifecycle matching, notification policy, daily attribution and retention, restarts, file replacement, midnight, DST, startup migration, state filters and diagnostics. Version 0.5 had five suites and 102 passing assertions.
 
 Native views are rendered in both appearances with synthetic records. Builds and ad-hoc signatures are checked on macOS 26 / Apple Silicon. UUID links and the installed URL handler are verified; the user confirmed an actual conversation click opened the correct Codex chat. Native notification permission is authorized, but a visible banner and notification-click routing remain unverified. Builds are not notarized, and Intel distribution is untested.
 
